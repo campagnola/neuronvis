@@ -80,7 +80,7 @@ class hocRender():
         info += mech_info
         return info
 
-    def draw_model(self, mode = "cylinder"):
+    def draw_model(self, modes=["cylinder"]):
         """
         modified from:neuronvisio
         Draw the model.
@@ -132,115 +132,129 @@ class hocRender():
         # print "\ny: ", y
         # print "\nz: ", z
         # print "\n     d:  ", d
+        for mode in modes:
+            if mode == 'blob':
+                self.drawBlob(x, y, z, d, lines)
+            elif mode == 'volume':
+                self.drawVolume(x, y, z, d, lines)
+            else:
+                self.drawMeshes(x, y, z, d, lines, mode)
 
-        self.drawMeshes(x,y,z,d,lines, mode)
+        
+    def makeVolumeData(self, x, y, z, d, lines):
+        res = 0.25 # resolution of scalar field in microns
+        maxdia = 10. # maximum diameter (defines shape of kernel)
+        kernel_size = int(maxdia/res) + 1 # width of kernel
+        
+        # copy all vertices to array
+        verlocs = np.empty((len(x), 3))
+        verlocs[:,0] = x
+        verlocs[:,1] = y
+        verlocs[:,2] = z
+        
+        # decide on dimensions of scalar field
+        mx = verlocs[...,:-3].max(axis=0)  # note: skip last 3 due to junk in hoc files
+        mn = verlocs.min(axis=0)
+        
+        xd = (np.max(x) - np.min(x))
+        yd = (np.max(y) - np.min(y))
+        zd = (np.max(z[:-3]) - np.min(z))
+        nx = int(xd/res) + kernel_size
+        ny = int(yd/res) + kernel_size
+        nz = int(zd/res) + kernel_size
+        
+        # prepare blank scalar field for drawing
+        scfield = np.zeros((nx, ny, nz), dtype=np.float32)
+        
+        # map vertex locations to voxels
+        verlocs -= np.array([[np.min(x), np.min(y), np.min(z)]])
+        verlocs *= 1./res
+
+        # Define kernel used to draw scalar field along dendrites
+        def cone(i,j,k):
+            # value decreases linearly with distance from center of kernel.
+            w = kernel_size / 2
+            return w - ((i-w)**2 + (j-w)**2 + (k-w)**2)**0.5
+        kernel = res * np.fromfunction(cone, (kernel_size,)*3)
+        kernel -= kernel.max()
+
+        # used to 'paint' the kernel onto the scalar field array
+        def stamp_array(data, stamp, loc):
+            s1 = [0]*3
+            s2 = [0]*3
+            t1 = [0]*3
+            t2 = [0]*3
+            loc = map(int, loc)
+            for axis in range(3):
+                s1[axis] = max(0, -loc[axis])
+                s2[axis] = min(stamp.shape[axis], data.shape[axis]-loc[axis])
+                t1[axis] = max(0, loc[axis])
+                t2[axis] = min(data.shape[axis], loc[axis]+stamp.shape[axis])
+            target = data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]]
+            source = stamp[s1[0]:s2[0], s1[1]:s2[1], s1[2]:s2[2]]
+            data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]] = np.where(source > target, source, target)
+
+        maplocs = verlocs
+        maplocs[:,0] = np.clip(maplocs[:,0], 0, scfield.shape[0]-1)
+        maplocs[:,1] = np.clip(maplocs[:,1], 0, scfield.shape[1]-1)
+        maplocs[:,2] = np.clip(maplocs[:,2], 0, scfield.shape[2]-1)
+        for c in range(len(lines)-3):
+            i = lines[c, 0]
+            j = lines[c, 1]
+            p1 = maplocs[i].copy()
+            p2 = maplocs[j].copy()
+            diff = p2-p1
+            axis = np.argmax(np.abs(diff))
+            dia = d[i]
+            nvoxels = abs(int(diff[axis]))+1
+            for k in range(nvoxels):
+                #scfield[p1[0], p1[1], p1[2]] = dia
+                stamp_array(scfield, np.clip(kernel+dia/2.0, 0, np.inf), p1)
+                dia += (d[j]-d[i]) / nvoxels
+                p1 += diff / nvoxels
+                
+        # return transform relating volume data to original vertex data
+        transform = pg.Transform3D()
+        w = res * kernel_size / 2 # offset introduced due to kernel
+        transform.translate(*(mn-w))
+        transform.scale(res, res, res)
+        transform.translate(1, 1, 1)
+        
+        return scfield, transform
+
+    def drawVolume(self, x, y, z, d, lines):
+        scfield, transform = self.makeVolumeData(x, y, z, d, lines)
+    
+        nfdata = np.empty(scfield.shape + (4,), dtype=np.ubyte)
+        nfdata[...,0] = 255 #scfield*50
+        nfdata[...,1] = 255# scfield*50
+        nfdata[...,2] = 255# scfield*50
+        nfdata[...,3] = np.clip(scfield*150, 0, 255)
+        v = gl.GLVolumeItem(nfdata)
+        v.setTransform(transform)
+
+        self.w.addItem(v)
+
+
+    def drawBlob(self, x, y, z, d, lines):
+        scfield, transform = self.makeVolumeData(x, y, z, d, lines)
+        verts, faces = pg.isosurface(scfield, scfield.max()/40.)
+        vertexColors = np.empty((verts.shape[0], 4), dtype=float)
+        md = gl.MeshData(vertexes=verts, faces=faces)
+        colors = np.ones((md.faceCount(), 4), dtype=float)
+        colors[:,3] = 0.1
+        #colors[:,2] = np.linspace(0, 1, colors.shape[0])
+        md.setFaceColors(colors)
+        mesh = gl.GLMeshItem(meshdata=md, smooth=True, shader='balloon')
+        mesh.setTransform(transform)
+        #w = res * kernel_size / 2 # offset introduced due to kernel
+        #m1.translate(np.min(x) - w, np.min(y) - w, np.min(z) - w)
+        #m1.scale(res, res, res)
+        mesh.setGLOptions('additive')
+        self.w.addItem(mesh)
 
 
     def drawMeshes(self, x, y, z, d, lines, mode):
-        showScalarField = False
-        if not np.all(np.isfinite(x)):
-            print 'x: ', x
-        if not np.all(np.isfinite(y)):
-            print 'y: ', y
-        if not np.all(np.isfinite(z)):
-            print 'z: ', z
-        if not np.all(np.isfinite(d)):
-            print 'd: ', d
-        if mode == 'blob':
-            # resolution
-            res = 0.25 # microns
-            maxdia = 10. #
-            N = int(maxdia/res) + 1
-            lind = range(0,len(lines)-3)
-            xd = (np.max(x) - np.min(x))
-            yd = (np.max(y) - np.min(y))
-            zd = (np.max(z[:-3]) - np.min(z))
-            nx = int(xd/res) + N
-            ny = int(yd/res) + N
-            nz = int(zd/res) + N
-            scfield = np.zeros((nx, ny, nz), dtype=np.float32)
-#            transform = pg.Transform3D()
-#            transform.scale(1./res, 1./res, 1./res)
-#            transform.translate((np.min(x)), np.min(y), np.min(z))
-
-            verlocs = np.empty((len(x), 3))
-            verlocs[:,0] = x
-            verlocs[:,1] = y
-            verlocs[:,2] = z
-            verlocs -= np.array([[np.min(x), np.min(y), np.min(z)]])
-            verlocs *= 1./res
-#            maplocs = pg.transformCoordinates(transform, verlocs, transpose=True)
-
-
-            def cone(i,j,k):
-                return N/2-((i-N/2)**2+(j-N/2)**2+(k-N/2)**2)**0.5
-            weights = res*np.fromfunction(cone, (N, N, N))
-            weights -= weights.max()
-
-            def stamp_array(data, stamp, loc):
-                s1 = [0]*3
-                s2 = [0]*3
-                t1 = [0]*3
-                t2 = [0]*3
-                loc = map(int, loc)
-                for axis in range(3):
-                    s1[axis] = max(0, -loc[axis])
-                    s2[axis] = min(stamp.shape[axis], data.shape[axis]-loc[axis])
-                    t1[axis] = max(0, loc[axis])
-                    t2[axis] = min(data.shape[axis], loc[axis]+stamp.shape[axis])
-                target = data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]]
-                source = stamp[s1[0]:s2[0], s1[1]:s2[1], s1[2]:s2[2]]
-                data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]] = np.where(source > target, source, target)
-
-            maplocs = verlocs
-            maplocs[:,0] = np.clip(maplocs[:,0], 0, scfield.shape[0]-1)
-            maplocs[:,1] = np.clip(maplocs[:,1], 0, scfield.shape[1]-1)
-            maplocs[:,2] = np.clip(maplocs[:,2], 0, scfield.shape[2]-1)
-            for c in range(len(lines)-3):
-                i = lines[c, 0]
-                j = lines[c, 1]
-                p1 = maplocs[i].copy()
-                p2 = maplocs[j].copy()
-                diff = p2-p1
-                axis = np.argmax(np.abs(diff))
-                dia = d[i]
-                nvoxels = abs(int(diff[axis]))+1
-                for k in range(nvoxels):
-                    #scfield[p1[0], p1[1], p1[2]] = dia
-                    stamp_array(scfield, np.clip(weights+dia/2.0, 0, np.inf), p1)
-                    dia += (d[j]-d[i]) / nvoxels
-                    p1 += diff / nvoxels
-            if showScalarField:
-                nfdata = np.empty(scfield.shape + (4,), dtype=np.ubyte)
-                nfdata[...,0] = 255 #scfield*50
-                nfdata[...,1] = 255# scfield*50
-                nfdata[...,2] = 255# scfield*50
-                nfdata[...,3] = np.clip(scfield*150, 0, 255)
-                v = gl.GLVolumeItem(nfdata)
-                v.scale(res, res, res)
-                v.translate(np.min(x), np.min(y), np.min(z))
-
-                self.w.addItem(v)
-
-
-            #data = scipy.ndimage.gaussian_filter(scfield, (2,2,2))
-            #data = scipy.ndimage.filters.convolve(scfield, weights,  mode='constant', cval=0.0, origin=0)
-
-
-            verts, faces = pg.isosurface(scfield, scfield.max()/40.)
-            vertexColors = np.empty((verts.shape[0], 4), dtype=float)
-            md = gl.MeshData(vertexes=verts, faces=faces)
-            colors = np.ones((md.faceCount(), 4), dtype=float)
-            colors[:,3] = 0.7
-            colors[:,2] = np.linspace(0, 1, colors.shape[0])
-            md.setFaceColors(colors)
-            m1 = gl.GLMeshItem(meshdata=md, smooth=True, shader='shaded')
-            m1.translate(np.min(x)-res*N/2, np.min(y)-res*N/2, np.min(z)-res*N/2)
-            m1.scale(res, res, res)
-            m1.setGLOptions('additive')
-            self.w.addItem(m1)
-
-        mode = 'line'
         dmax = np.max(d)
         #wmax = 20.
         for c in range(len(lines)-3):
@@ -252,8 +266,6 @@ class hocRender():
             if mode == "line":
                 plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
                 self.w.addItem(plt)
-
-
             elif mode == 'sphere':
                 print 'I am a sphere'
                 md = gl.MeshData.sphere(rows=10, cols=20, radius=d[i]/2.0) # , length=d(i))
@@ -320,8 +332,8 @@ class hocRender():
 if __name__ == "__main__":
     pg.mkQApp()
     pg.dbg()
-#    h.load_file(1, 'Calyx-68cvt2.hoc')
-    h.load_file(1, "Calyx-S53Acvt3.hoc")
+    h.load_file(1, 'Calyx-68cvt2.hoc')
+    #h.load_file(1, "Calyx-S53Acvt3.hoc")
     render = hocRender(h)
-    render.draw_model(mode='blob')
+    render.draw_model(modes=['blob', 'line'])
     render.show()
