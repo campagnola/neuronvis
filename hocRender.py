@@ -247,9 +247,6 @@ class hocRender():
         md.setFaceColors(colors)
         mesh = gl.GLMeshItem(meshdata=md, smooth=True, shader='balloon')
         mesh.setTransform(transform)
-        #w = res * kernel_size / 2 # offset introduced due to kernel
-        #m1.translate(np.min(x) - w, np.min(y) - w, np.min(z) - w)
-        #m1.scale(res, res, res)
         mesh.setGLOptions('additive')
         self.w.addItem(mesh)
 
