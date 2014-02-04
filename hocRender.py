@@ -8,6 +8,7 @@ import scipy.ndimage
 import neuron as h
 import neuron as h
 from neuron import *
+import re
 
 class hocRender():
     def __init__(self, h):
@@ -88,13 +89,20 @@ class hocRender():
         controls - the main gui obj."""
 
         # Draw the new one
-        self.h.define_shape()
+        #self.h.define_shape()
         num_sections = 0
-
-        x,y,z,d = [], [], [], []
-        voltage = []
+        
+        # map segments (lines) to the section that contains them
+        self.segment_to_section = {}
+        
+        vertexes = []
         connections = []
         for sec in self.h.allsec():
+            m = re.match(r'axon\[(\d+)\]', sec.name())
+            if m is None:
+                raise Exception('could not determine section ID from name: %s' % sec.name())
+            secid = int(m.groups()[0])
+            
             x_sec, y_sec, z_sec, d_sec = self.retrieve_coordinate(sec)
             self.sec2coords[sec.name()] = [x_sec, y_sec, z_sec]
             # Store the section. later.
@@ -109,52 +117,44 @@ class hocRender():
 
 
             for i,xi in enumerate(x_sec):
-                x.append(x_sec[i])
-                y.append(y_sec[i])
-                z.append(z_sec[i])
-                d.append(d_sec[i])
-                indx_geom_seg = len(x) -1
-
-                if len(x) > 1 and i > 0:
+                vertexes.append((x_sec[i], y_sec[i], z_sec[i], d_sec[i], secid))
+                indx_geom_seg = len(vertexes) - 1
+                if len(vertexes) > 1 and i > 0:
                     connections.append([indx_geom_seg, indx_geom_seg-1])
 
 
-        self.edges  = connections
-        self.x = x
-        self.y = y
-        self.z = z
+        self.edges  = np.array(connections)
+        self.vertexes = np.array(vertexes)
 
-        d = np.array(d) # Transforming for easy division
-        lines = np.vstack(connections)
-#S        print 'lines: ', lines
-
-        # print "x:  ", x
-        # print "\ny: ", y
-        # print "\nz: ", z
-        # print "\n     d:  ", d
         for mode in modes:
             if mode == 'blob':
-                self.drawBlob(x, y, z, d, lines)
+                self.drawBlob()
             elif mode == 'volume':
                 self.drawVolume(x, y, z, d, lines)
             else:
                 self.drawMeshes(x, y, z, d, lines, mode)
 
         
-    def makeVolumeData(self, x, y, z, d, lines):
-        res = 0.25 # resolution of scalar field in microns
+    def makeVolumeData(self):
+        
+        res = 0.4 # resolution of scalar field in microns
         maxdia = 10. # maximum diameter (defines shape of kernel)
         kernel_size = int(maxdia/res) + 1 # width of kernel
         
-        # copy all vertices to array
-        verlocs = np.empty((len(x), 3))
-        verlocs[:,0] = x
-        verlocs[:,1] = y
-        verlocs[:,2] = z
+        # read vertex data
+        verlocs = self.vertexes[:, :3]
+        x = verlocs[:,0]
+        y = verlocs[:,1]
+        z = verlocs[:,2]
+        d = self.vertexes[:,3]
+        sec_id = self.vertexes[:,4]
+        
+        lines = self.edges
         
         # decide on dimensions of scalar field
         mx = verlocs[...,:-3].max(axis=0)  # note: skip last 3 due to junk in hoc files
         mn = verlocs.min(axis=0)
+        
         
         xd = (np.max(x) - np.min(x))
         yd = (np.max(y) - np.min(y))
@@ -165,6 +165,11 @@ class hocRender():
         
         # prepare blank scalar field for drawing
         scfield = np.zeros((nx, ny, nz), dtype=np.float32)
+        scfield[:] = -1000
+        
+        # array for holding IDs of sections that contribute to each area
+        idfield = np.empty((nx, ny, nz), dtype=int)
+        idfield[:] = -1
         
         # map vertex locations to voxels
         verlocs -= np.array([[np.min(x), np.min(y), np.min(z)]])
@@ -178,27 +183,31 @@ class hocRender():
         kernel = res * np.fromfunction(cone, (kernel_size,)*3)
         kernel -= kernel.max()
 
-        # used to 'paint' the kernel onto the scalar field array
-        def stamp_array(data, stamp, loc):
+        def array_intersection(arr1, arr2, pos):
+            """
+            Return slices used to access the overlapping area between two 
+            arrays that are offset such that the origin of *arr2* is a *pos* 
+            relative to *arr1*.            
+            """
             s1 = [0]*3
             s2 = [0]*3
             t1 = [0]*3
             t2 = [0]*3
-            loc = map(int, loc)
+            pos = map(int, pos)
             for axis in range(3):
-                s1[axis] = max(0, -loc[axis])
-                s2[axis] = min(stamp.shape[axis], data.shape[axis]-loc[axis])
-                t1[axis] = max(0, loc[axis])
-                t2[axis] = min(data.shape[axis], loc[axis]+stamp.shape[axis])
-            target = data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]]
-            source = stamp[s1[0]:s2[0], s1[1]:s2[1], s1[2]:s2[2]]
-            data[t1[0]:t2[0], t1[1]:t2[1], t1[2]:t2[2]] = np.where(source > target, source, target)
+                s1[axis] = max(0, -pos[axis])
+                s2[axis] = min(arr2.shape[axis], arr1.shape[axis]-pos[axis])
+                t1[axis] = max(0, pos[axis])
+                t2[axis] = min(arr1.shape[axis], pos[axis]+arr2.shape[axis])
+            slice1 = (slice(t1[0],t2[0]), slice(t1[1],t2[1]), slice(t1[2],t2[2]))
+            slice2 = (slice(s1[0],s2[0]), slice(s1[1],s2[1]), slice(s1[2],s2[2]))
+            return slice1, slice2            
 
         maplocs = verlocs
         maplocs[:,0] = np.clip(maplocs[:,0], 0, scfield.shape[0]-1)
         maplocs[:,1] = np.clip(maplocs[:,1], 0, scfield.shape[1]-1)
         maplocs[:,2] = np.clip(maplocs[:,2], 0, scfield.shape[2]-1)
-        for c in range(len(lines)-3):
+        for c in range(lines.shape[0] - 3):
             i = lines[c, 0]
             j = lines[c, 1]
             p1 = maplocs[i].copy()
@@ -208,8 +217,12 @@ class hocRender():
             dia = d[i]
             nvoxels = abs(int(diff[axis]))+1
             for k in range(nvoxels):
-                #scfield[p1[0], p1[1], p1[2]] = dia
-                stamp_array(scfield, np.clip(kernel+dia/2.0, 0, np.inf), p1)
+                kern = kernel + (dia/2.0)
+                sl1, sl2 = array_intersection(scfield, kern, p1) # find the overlapping area between the field and the kernel
+                idfield[sl1] = np.where(scfield[sl1] > kern[sl2], idfield[sl1], sec_id[i])
+                scfield[sl1] = np.where(scfield[sl1] > kern[sl2], scfield[sl1], kern[sl2])
+                #stamp_array(scfield, kern, p1)
+                #stamp_array(idfield, kern, p1)
                 dia += (d[j]-d[i]) / nvoxels
                 p1 += diff / nvoxels
                 
@@ -220,10 +233,10 @@ class hocRender():
         transform.scale(res, res, res)
         transform.translate(1, 1, 1)
         
-        return scfield, transform
+        return scfield, idfield, transform
 
     def drawVolume(self, x, y, z, d, lines):
-        scfield, transform = self.makeVolumeData(x, y, z, d, lines)
+        scfield, idfield, transform = self.makeVolumeData(x, y, z, d, lines)
     
         nfdata = np.empty(scfield.shape + (4,), dtype=np.ubyte)
         nfdata[...,0] = 255 #scfield*50
@@ -236,20 +249,37 @@ class hocRender():
         self.w.addItem(v)
 
 
-    def drawBlob(self, x, y, z, d, lines):
-        scfield, transform = self.makeVolumeData(x, y, z, d, lines)
-        verts, faces = pg.isosurface(scfield, scfield.max()/40.)
+    def drawBlob(self):
+        scfield, idfield, transform = self.makeVolumeData()
+        scfield = scipy.ndimage.gaussian_filter(scfield, (0.5, 0.5, 0.5))
+        #pg.image(scfield)
+        verts, faces = pg.isosurface(scfield, level=0.0)
         vertexColors = np.empty((verts.shape[0], 4), dtype=float)
         md = gl.MeshData(vertexes=verts, faces=faces)
-        colors = np.ones((md.faceCount(), 4), dtype=float)
-        colors[:,3] = 0.1
-        #colors[:,2] = np.linspace(0, 1, colors.shape[0])
-        md.setFaceColors(colors)
+        
+        # match vertexes to section IDs
+        #vox_locations = pg.transformCoordinates(transform, verts, transpose=True).astype(int)
+        vox_locations = verts.astype(int)
+        # get sction IDs for each vertex
+        self.mesh_sec_ids = idfield[vox_locations[:,0], vox_locations[:,1], vox_locations[:,2]] 
+        
         mesh = gl.GLMeshItem(meshdata=md, smooth=True, shader='balloon')
         mesh.setTransform(transform)
         mesh.setGLOptions('additive')
+        self.mesh = mesh
         self.w.addItem(mesh)
 
+    def show_section(self, sec_id):
+        colors = np.empty((len(self.mesh_sec_ids), 4))
+        colors[:] = 0.3
+        colors[sec_id] = 1
+        self.set_section_colors(colors)
+    
+    def set_section_colors(self, sec_colors):
+        md = self.mesh.opts['meshdata']
+        colors = sec_colors[self.mesh_sec_ids]
+        md.setVertexColors(colors)
+        self.mesh.meshDataChanged()
 
     def drawMeshes(self, x, y, z, d, lines, mode):
         dmax = np.max(d)
@@ -326,11 +356,44 @@ class hocRender():
         self.n3dpoints_per_sec[sec.name()] = len(d)
         return (np.array(x),np.array(y),np.array(z),np.array(d))
 
+
+
+
 if __name__ == "__main__":
-    pg.mkQApp()
+    app = pg.mkQApp()
     pg.dbg()
-    h.load_file(1, 'Calyx-68cvt2.hoc')
-    #h.load_file(1, "Calyx-S53Acvt3.hoc")
+    #h.load_file(1, 'Calyx-68cvt2.hoc')
+    h.load_file(1, "Calyx-S53Acvt3.hoc")
     render = hocRender(h)
-    render.draw_model(modes=['blob', 'line'])
-    render.show()
+    render.draw_model(modes=['blob'])
+    #render.show()
+    import user
+
+    import pickle
+    vdata = pickle.load(open('data.p'))
+    color = np.zeros((vdata['data'].shape[0], 4), dtype=float)
+    index = 0
+    #vdata['data'] = vdata['data'][:,400:550]
+    
+    def update():
+        global index, color, render, vdata
+        v = (vdata['data'][:,index] + 50) * 0.02
+        color[:,0] = v
+        color[:,1] = v+0.3
+        color[:,2] = v-0.3
+        color[:,3] = 0.2
+        render.set_section_colors(color)
+        
+        index = (index + 1) % vdata['data'].shape[1]
+    
+    timer = pg.QtCore.QTimer()
+    timer.timeout.connect(update)
+    timer.start(0)
+    
+    def render_stack(start, stop):
+        global index, render, timer
+        timer.stop()
+        for index in range(start, stop):
+            update()
+            render.w.readQImage().save('render-%03d.png' % (index-start))
+            
