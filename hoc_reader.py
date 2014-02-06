@@ -1,5 +1,7 @@
 import neuron
-
+import collections
+import numpy as np
+import pyqtgraph as pg
 
 class HocReader:
     """
@@ -10,30 +12,35 @@ class HocReader:
     """
     def __init__(self, hoc):
         if isinstance(hoc, basestring):
-            hoc = neuron.load_file(1, hoc)
+            neuron.h.load_file(1, hoc)
             
-        self.h = hoc
-
-        # we need to get the section
-        self.nsec = len(list(self.h.allsec()))
+        self.h = neuron.h
 
         # geometry containers
         self.edges = None
         self.vertexes = None
         
-        self.sections = {}   # all sections in the hoc  {sec_name: hoc Section}
-        self.mechanisms = {} # {sec_name: [mechanism, ...]}
-        self.sec_groups = {} # {sec_group_name: [Section, ...]}
+        # all sections in the hoc  {sec_name: hoc Section}
+        self.sections = collections.OrderedDict()
+        # {sec_name: index} indicates index into self.sections.values() where
+        # Section can be found. 
+        self.sec_index = {}
+        # {sec_name: [mechanism, ...]}
+        self.mechanisms = collections.OrderedDict()
+        # {sec_group_name: set(sec_name, ...)}
+        self.sec_groups = {} 
         
         # populate self.sections and self.mechanisms
         self._read_section_info()
-        
 
     def get_section(self, sec_name):
         """
         Return the hoc Section object with the given name.
         """
-        return self.sections[sec_name]        
+        try:
+            return self.sections[sec_name]
+        except KeyError:
+            raise KeyError("No section named '%s'" % sec_name)
 
     def get_mechanisms(self, section):
         """
@@ -104,10 +111,11 @@ class HocReader:
 
     def _read_section_info(self):
         # Collect list of all sections and their mechanism names.
-        self.sections = {}
-        self.mechanisms = {}
-        for sec in self.h:
-            self.sections[sec.name] = sec
+        self.sections = collections.OrderedDict()
+        self.mechanisms = collections.OrderedDict()
+        for i, sec in enumerate(self.h.allsec()):
+            self.sections[sec.name()] = sec
+            self.sec_index[sec.name()] = i
             mechs = set()
             for seg in sec:
                 for mech in seg:
@@ -125,18 +133,20 @@ class HocReader:
         
         """
         assert name not in self.sec_groups
-        group = []
+        group = set()
         for sec in sections:
-            group.append(self.get_section(sec))
+            if not isinstance(sec, basestring):
+                sec = sec.name()
+            group.add(sec)
         self.sec_groups[name] = group
 
     def get_section_group(self, name):
         """
-        Return the list of hoc Section objects in the group *name*.
+        Return the set of section names in the group *name*.
         """
         return self.sec_groups[name]
         
-    def read_hoc_section_list(self, names):
+    def read_hoc_section_lists(self, names):
         """
         Add a new section groups from the hoc variables indicated in *names*.
         
@@ -181,32 +191,24 @@ class HocReader:
         
         vertexes = []
         connections = []
-        for sec in self.h.allsec():
-            print sec.name()
-            m = re.match(r'axon\[(\d+)\]', sec.name())
-            if m is None:
-                continue
-                #raise Exception('Could not determine section ID from name: %s' % sec.name())
-            secid = int(m.groups()[0])
-            
+        
+        for secid, sec in enumerate(self.sections.values()):
             x_sec, y_sec, z_sec, d_sec = self.retrieve_coordinate(sec)
-            # Store the section. later.
-            radius = sec.diam/2.
-            sec_coords_bound = ((x_sec.min(), x_sec.max()),
-                                (y_sec.min() - radius,
-                                 y_sec.max() + radius),
-                                (z_sec.min() - radius,
-                                 z_sec.max() + radius))
 
             for i,xi in enumerate(x_sec):
-                vertexes.append((x_sec[i], y_sec[i], z_sec[i], d_sec[i], secid))
+                vertexes.append(((x_sec[i], y_sec[i], z_sec[i]), d_sec[i], secid))
                 indx_geom_seg = len(vertexes) - 1
                 if len(vertexes) > 1 and i > 0:
                     connections.append([indx_geom_seg, indx_geom_seg-1])
 
 
-        self.edges  = np.array(connections)
-        self.vertexes = np.array(vertexes)
+        self.edges = np.array(connections)
+        self.vertexes = np.empty(len(vertexes), dtype=[
+            ('pos', float, 3),
+            ('dia', float),
+            ('sec_index', int)])
+        self.vertexes[:] = vertexes
+        return self.vertexes, self.edges
 
     def retrieve_coordinate(self, sec):
         """Retrieve the coordinates of the section avoiding duplicates"""
@@ -256,35 +258,28 @@ class HocReader:
         vertexes, lines = self.get_geometry()
         
         # read vertex data
-        verlocs = vertexes[:, :3]
-        x = verlocs[:,0]
-        y = verlocs[:,1]
-        z = verlocs[:,2]
-        d = vertexes[:,3]
-        sec_id = vertexes[:,4]
+        pos = vertexes['pos']
+        d = vertexes['dia']
+        sec_id = vertexes['sec_index']
         
         # decide on dimensions of scalar field
-        mx = verlocs[...,:-3].max(axis=0)  # note: skip last 3 due to junk in hoc files
-        mn = verlocs.min(axis=0)
+        mx = pos.max(axis=0)
+        mn = pos.min(axis=0)
+        diff = mx - mn
+        shape = tuple((diff / res + kernel_size).astype(int))
 
-        xd = (np.max(x) - np.min(x))
-        yd = (np.max(y) - np.min(y))
-        zd = (np.max(z[:-3]) - np.min(z))
-        nx = int(xd/res) + kernel_size
-        ny = int(yd/res) + kernel_size
-        nz = int(zd/res) + kernel_size
-        
         # prepare blank scalar field for drawing
-        scfield = np.zeros((nx, ny, nz), dtype=np.float32)
+        scfield = np.zeros(shape, dtype=np.float32)
         scfield[:] = -1000
         
         # array for holding IDs of sections that contribute to each area
-        idfield = np.empty((nx, ny, nz), dtype=int)
+        idfield = np.empty(shape, dtype=int)
         idfield[:] = -1
         
         # map vertex locations to voxels
-        verlocs -= np.array([[np.min(x), np.min(y), np.min(z)]])
-        verlocs *= 1./res
+        vox_pos = pos.copy()
+        vox_pos -= mn.reshape((1,3))
+        vox_pos *= 1./res
 
         # Define kernel used to draw scalar field along dendrites
         def cone(i,j,k):
@@ -314,15 +309,14 @@ class HocReader:
             slice2 = (slice(s1[0],s2[0]), slice(s1[1],s2[1]), slice(s1[2],s2[2]))
             return slice1, slice2            
 
-        maplocs = verlocs
-        maplocs[:,0] = np.clip(maplocs[:,0], 0, scfield.shape[0]-1)
-        maplocs[:,1] = np.clip(maplocs[:,1], 0, scfield.shape[1]-1)
-        maplocs[:,2] = np.clip(maplocs[:,2], 0, scfield.shape[2]-1)
-        for c in range(lines.shape[0] - 3):
+        vox_pos[:,0] = np.clip(vox_pos[:,0], 0, scfield.shape[0]-1)
+        vox_pos[:,1] = np.clip(vox_pos[:,1], 0, scfield.shape[1]-1)
+        vox_pos[:,2] = np.clip(vox_pos[:,2], 0, scfield.shape[2]-1)
+        for c in range(lines.shape[0]):
             i = lines[c, 0]
             j = lines[c, 1]
-            p1 = maplocs[i].copy()
-            p2 = maplocs[j].copy()
+            p1 = vox_pos[i].copy()
+            p2 = vox_pos[j].copy()
             diff = p2-p1
             axis = np.argmax(np.abs(diff))
             dia = d[i]

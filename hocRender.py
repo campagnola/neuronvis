@@ -24,13 +24,11 @@ the hoc file connection structure (specifically: getSectionInfo, and parts of dr
 """
 
 
-import sys, pickle
-from hoc_reader import HocReader
-from hoc_viewer import HocViewer
+import os, sys, pickle
 
 
 # define all commands here.
-commands {
+commands = {
     'sec-type': "Sections colored by type",
     'vm': "Animation of per-section membrane voltage over time.",
     }
@@ -43,14 +41,14 @@ def error():
     print("Usage: hocRender input_file command")
     print("  input_file may be either *.hoc defining section properties or")
     print("  *.p containing simulation results.\n")
-    print("Commands available:")
+    print("Available commands:")
     for cmd,desc in commands.items():
-        print("\n"+cmd+":")
-        print(desc)
+        print("  "+cmd+":")
+        print("\n".join(["    "+line for line in desc.split("\n")]))
     sys.exit(-1)
 
 if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
-    error:
+    error()
 input_file = sys.argv[1]
 
 if len(sys.argv) > 2:
@@ -64,13 +62,20 @@ else:
 # read input file(s)
 if input_file.endswith('.p'):
     sim_data = pickle.load(input_file)
-    hoc_file = sim_data['hoc_file']
+    try:
+        hoc_file = sim_data['hoc_file']
+    except KeyError:
+        raise Exception(".p file must have 'hoc_file' key!")
 elif input_file.endswith('.hoc'):
     sim_data = None
     hoc_file = input_file
 else:
     error()
 
+# import here so we can parse commands more quickly 
+# (and without neuron garbage)
+from hoc_reader import HocReader
+from hoc_viewer import HocViewer
 hoc = HocReader(hoc_file)
 view = HocViewer(hoc)
 
@@ -78,13 +83,13 @@ view = HocViewer(hoc)
 # Handle commands
 ##########################################################
 
-if command == 'sec-type'
+if command == 'sec-type':
     # Color sections by type.
-    surf = view.draw_surface()
     section_colors={'axon': 'r', 'heminode': 'g', 'stalk':'y', 'branch': 'b', 'neck': 'brown',
             'swelling': 'magenta', 'tip': 'powderblue', 'parentaxon': 'orange', 'synapse': 'k'}
-    view.read_hoc_section_lists(section_colors.keys())
-    view.paint_sections_by_type(section_colors)
+    hoc.read_hoc_section_lists(section_colors.keys())
+    surf = view.draw_surface()
+    surf.set_group_colors(section_colors, alpha=0.2)
     
 elif command == 'vm':
     # Render animation of membrane voltage

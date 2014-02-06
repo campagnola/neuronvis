@@ -17,7 +17,7 @@ class HocViewer(gl.GLViewWidget):
             h = HocReader(h)
         self.h = h
         pg.mkQApp()  # make sure there is a QApplication before instantiating any QWidgets.
-        super(HocRender, self).__init__()
+        super(HocViewer, self).__init__()
         self.resize(720,720)
         self.show()
         self.setWindowTitle('hocRender')
@@ -28,12 +28,6 @@ class HocViewer(gl.GLViewWidget):
         self.addItem(self.g)
         
         self.graphics = []
-
-    def show(self):
-        """
-        Start the Qt event loop.
-        """
-        QtGui.QApplication.exec_()
 
     def draw_volume(self):
         """

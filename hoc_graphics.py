@@ -44,27 +44,35 @@ class HocGraphic:
     def set_section_colors(self, colors):
         """
         Recolor the graphic by section using the *colors* array. This method
-        must be reimplemented by HocGraphic subclasses.
+        must be reimplemented by HocGraphic subclasses. The order of elements
+        in the array must match the order of sections defined in 
+        HocReader.sections.
         """
         raise NotImplementedError()
     
-    def paint_sections_by_type(self, sectionColors, excludeSections = []):
+    def set_group_colors(self, colors, default_color=(0,0,0,0), alpha=None):
         """
         Color the sections in the reconstruction according to their
-        structural type, based on the mapping dictionary in sectionColors
-        Inputs: sectionColors, a dictionary of section names and their associated colors
-            excludeSections: the names of section types that should not be colored (such as "axon")
+        group name.
+        Inputs: 
+            colors: a dictionary of section group names and their associated colors
+            default_color: color to use for any sections that are not included in the
+                           groups listed in *colors*.
+            alpha: If specified, this overrides the alpha value for all group colors.
         Side-effects: none.
         """
-        color = np.zeros((self.nsec, 4), dtype=float)
-        for stype in self.Sections:
-            if stype in excludeSections: # skip excluded sections and "parent" sections
-                continue
-            for sno in self.Sections[stype]:
-                color[sno, :] = Colors[sectionColors[stype]] # map colors
-                color[sno, 3] = 0.2 # alpha
-        render.set_section_colors(color)
-        #self.w.setWindowTitle('hocRender: by Section Type')
+        sec_colors = np.zeros((len(self.h.sections), 4), dtype=float)
+        sec_colors[:] = default_color
+        
+        for group_name, color in colors.items():
+            for sec_name in self.h.get_section_group(group_name):
+                if isinstance(color, basestring):
+                    color = Colors[color]
+                index = self.h.sec_index[sec_name]
+                sec_colors[index] = color
+                if alpha is not None:
+                    sec_colors[index, 3] = alpha
+        self.set_section_colors(sec_colors)
 
     def paint_sections_by_density(self, sectionColors, mechanism, excludeSections = []):
         """
@@ -116,7 +124,7 @@ class HocVolume(gl.GLVolumeItem, HocGraphic):
     """
     def __init__(self, h):
         self.h = h
-        scfield, idfield, transform = self.h.makeVolumeData()
+        scfield, idfield, transform = self.h.make_volume_data()
         nfdata = np.empty(scfield.shape + (4,), dtype=np.ubyte)
         nfdata[...,0] = 255 #scfield*50
         nfdata[...,1] = 255# scfield*50
@@ -138,20 +146,21 @@ class HocSurface(gl.GLMeshItem, HocGraphic):
     """
     def __init__(self, h):
         self.h = h
-        scfield, idfield, transform = self.h.makeVolumeData()
+        scfield, idfield, transform = self.h.make_volume_data()
         #scfield = scipy.ndimage.gaussian_filter(scfield, (0.5, 0.5, 0.5))
         #pg.image(scfield)
         verts, faces = pg.isosurface(scfield, level=0.0)
+        self.verts = verts
+        self.faces = faces
         vertexColors = np.empty((verts.shape[0], 4), dtype=float)
-        self.md = gl.MeshData(vertexes=verts, faces=faces)
+        md = gl.MeshData(vertexes=verts, faces=faces)
         
         # match vertexes to section IDs
-        #vox_locations = pg.transformCoordinates(transform, verts, transpose=True).astype(int)
         vox_locations = verts.astype(int)
         # get sction IDs for each vertex
-        self.mesh_sec_ids = idfield[vox_locations[:,0], vox_locations[:,1], vox_locations[:,2]] 
+        self.vertex_sec_ids = idfield[vox_locations[:,0], vox_locations[:,1], vox_locations[:,2]] 
         
-        super(HocSurface, self).__init__(meshdata=self.md, smooth=True, shader='balloon')
+        super(HocSurface, self).__init__(meshdata=md, smooth=True, shader='balloon')
         self.setTransform(transform)
         self.setGLOptions('additive')
 
@@ -160,7 +169,7 @@ class HocSurface(gl.GLMeshItem, HocGraphic):
         Set the color of section named *sec_id* to *color*.
         All other sections are colored with *bg_color*.
         """
-        colors = np.empty((len(self.mesh_sec_ids), 4))
+        colors = np.empty((len(self.vertex_sec_ids), 4))
         colors[:] = bg_color
         colors[sec_id] = color
         self.set_section_colors(colors)
@@ -173,13 +182,14 @@ class HocSurface(gl.GLMeshItem, HocGraphic):
             colors: (N,4) float array of (r,g,b,a) colors, in the order that
                     sections are defined by the HocReader.
         """
-        colors = sec_colors[self.mesh_sec_ids]
-        self.md.setVertexColors(colors)
+        colors = sec_colors[self.vertex_sec_ids]
+        print colors
+        self.opts['meshdata'].setVertexColors(colors)
         self.meshDataChanged()
 
 
 
-class HocGraph(GLLinePlotItem, HocGraphic):
+class HocGraph(gl.GLLinePlotItem, HocGraphic):
     """
     Subclass of GLLinePlotItem that draws a line representation of the geometry
     specified by a HocReader.
