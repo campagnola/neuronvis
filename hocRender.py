@@ -1,4 +1,26 @@
 __author__ = 'pbmanis'
+"""
+hocRender : provide visual rendering for morphology and other attributes
+as stored in a "hoc" file.
+Usage:
+
+h.loadfile(filename) # standard hoc load
+# potentially, you would decorate the membrane with biophysical mechanisms here:
+decorate(h)
+
+pg.mkQApp()
+pg.dbg()
+render = hr.hocRender(h) # where h is the NEURON hoc object (from neuron import h)
+render.draw_model(modes=['blob'])
+render.getSectionLists(Colors.keys()) # if the sections are named...
+render.paintSectionsByDensity(self.modelPars.calyxColors, self.modelPars.mechNames['CaPCalyx'])
+render.show()
+
+2/3/2014
+Portions of this code were taken from neuronvisio (http://neuronvisio.org), specifically, to parse
+the hoc file connection structure (specifically: getSectionInfo, and parts of drawModel).
+
+"""
 
 from pyqtgraph.Qt import QtCore, QtGui
 import pyqtgraph as pg
@@ -9,15 +31,19 @@ import neuron as h
 import neuron as h
 from neuron import *
 import re
+import pickle
+import cv
+import cv2
 
 class hocRender():
     def __init__(self, h):
         self.h = h
         self.app = pg.mkQApp()
         self.w = gl.GLViewWidget()
+        self.w.resize(720,720)
         self.w.show()
-        self.w.setWindowTitle('hoc Render')
-        self.w.setCameraPosition(distance=200.)
+        self.w.setWindowTitle('hocRender')
+        self.w.setCameraPosition(distance=300.)
 
         self.g = gl.GLGridItem()
         self.g.scale(2,2,1)
@@ -25,6 +51,9 @@ class hocRender():
         self.sec2coords = {}
         # we need to get the section
         self.cyl2sec = {}
+        self.nsec = 0
+        for sec in self.h.allsec():
+            self.nsec += 1
 
         # Needed to update the value of a cyl bound to a section
         self.sec2cyl = {}
@@ -32,28 +61,88 @@ class hocRender():
         self.sec2coords = {}
         self.connections = []
         self.n3dpoints_per_sec = {}
+        self.Sections = {}
+        self.Mechanisms = {} # mechanisms are stored by "axon" section number
+
+        self.Colors = { # colormap
+            'b': np.array([0,0,255,255])/255.,
+            'blue': np.array([0,0,255,255])/255.,
+            'g': np.array([0,255,0,255])/255.,
+            'green': np.array([0,255,0,255])/255.,
+            'r': np.array([255,0,0,255])/255.,
+            'red': np.array([255,0,0,255])/255.,
+            'cyan': np.array([0,255,255,255])/255.,
+            'c': np.array([0,255,255,255])/255.,
+            'm': np.array([255,0,255,255])/255.,
+            'magenta': np.array([255,0,255,255])/255.,
+            'y': np.array([255,255,0,255])/255.,
+            'yellow': np.array([255,255,0,255])/255.,
+            'k': np.array([0,0,0,255])/255.,
+            'black': np.array([0,0,0,255])/255.,
+            'w': np.array([255,255,255,255])/255.,
+            'white': np.array([255,255,255,255])/255.,
+            'd': np.array([150,150,150,255])/255.,
+            'dark': np.array([150,150,150,255])/255.,
+            'l': np.array([200,200,200,255])/255.,
+            'light': np.array([200,200,200,255])/255.,
+            's': np.array([100,100,150,255])/255.,
+            'powderblue': np.array([176,230,230,255])/255.,
+            'brown': np.array([180,25,25,255])/255.,
+            'orange': np.array([255,180,0,255])/255.,
+            'pink': np.array([255,190,206,255])/255.,
+        }
 
 
     def show(self):
         QtGui.QApplication.instance().exec_()
 
 
-    def makeStick(self, seclist):
-        for i, sec in enumerate(seclist): # self.CalyxStruct[input]['axon']: # set a new value
+    def get_mechanisms(self, section):
+        """
+        Get a list of all of the mechanisms inserted into a given section
+        Input: section (hoc object)
+        Returns: list of mechs:
+        Side-effects: None
+        """
+        mechs = []
+        for seg in section:
+            for mech in seg:
+                mechs.append(mech.name())
+        mechs = set(mechs) # Excluding the repeating ones
+        return mechs
 
-            if i == 0:
-                info = self.get_sec_info(sec)
-                print info
-                # for nseg in sec:
-                #     print sec()
-                #     print dir(nseg)
-                #     print nseg.diam
-                #     print nseg.x
-                #     print nseg.sec
-                #     for sn in nseg.sec:
-                #         print dir(sn)
-                #         print sn.x
-                #         print sn.diam
+
+    def get_density(self, section, mechanism):
+        """
+        Get density mechanism that may be found the section.
+        mechanism is a list ['name', 'gbarname']. This is needed because
+        some mechanisms do not adhere to any convention and may have a different
+        kind of 'gbarname' than 'gbar<name>_mechname'
+        returns the average of the conductance density, as that may range across different
+        values in a section (e.g., can vary by segments)
+        Input: section (hoc object)
+                mechanism mechanism is a list ['name', 'gbarname'].
+        Output:
+            mean conductance inserted into the section across segments
+        Side-effects:
+            None
+        """
+        gmech = []
+        for seg in section:
+            try:
+                x =  eval('seg.%s' % mechanism[0])
+                mecbar = '%s_%s' % (mechanism[1], mechanism[0])
+                if mecbar in dir(x):
+                    gmech.append(eval('x.%s' % mechanism[1]))
+                else:
+                    print 'hocRender:get_density did not find the mechanism in dir x'
+            except:
+                print 'hocRender:get_density failed to evaluate the mechanisms... '
+
+#        print gmech
+        if len(gmech) == 0:
+            gmech = 0.
+        return np.mean(gmech)
 
 
     def get_sec_info(self, section):
@@ -61,7 +150,6 @@ class hocRender():
         Get the info of the given section
         modified from: neuronvisio
         """
-
         info = "<b>Section Name:</b> %s<br/>" %section.name()
         info += "<b>Length [um]:</b> %f<br/>" % section.L
         info += "<b>Diameter [um]:</b> %f<br/>" % section.diam
@@ -73,6 +161,7 @@ class hocRender():
             for mech in seg:
                 mechs.append(mech.name())
         mechs = set(mechs) # Excluding the repeating ones
+
         mech_info = "<b>Mechanisms in the section</b><ul>"
         for mech_name in mechs:
             s = "<li> %s </li>" % mech_name
@@ -81,26 +170,56 @@ class hocRender():
         info += mech_info
         return info
 
+
+    def getSectionLists(self, names):
+        """
+        Get the list of sections that have names corresponding to the list in names.
+        Note that this looks in "axon" again. May break generality
+        Side effects (modifies):
+            self.Sections
+            self.Mechanisms
+        returns: Nothing.
+        """
+        self.Sections = {key: None for key in names}
+        self.Mechanisms = {key: None for key in names}
+        src = re.compile('axon\[(\d*)\]')
+        for name in self.Sections: # for each part
+            x=eval("h.%s" % name) # find the associated variable
+            axno = []
+            for sec in x: # for each section in the list with this name (cell part)
+                g = src.match(sec.name())
+                axno.append(int(g.groups()[0])) # get the axon # and populate the dictionary
+                mech = self.get_mechanisms(sec)
+                if self.Mechanisms[name] == None: # fill first
+                    self.Mechanisms[name] = [(axno, mech)]
+                else:
+                    self.Mechanisms[name].append([(axno, mech)])
+            self.Sections[name]  = list(axno) # and populate it with the axon #'s of each assigned section
+
+
     def draw_model(self, modes=["cylinder"]):
         """
         modified from:neuronvisio
         Draw the model.
-        Params:
-        controls - the main gui obj."""
+        Inputs: modes - a list of potential representations, including:
+            cylinder, blob, lines, mesh, and sphere
+        Outputs: None (display)
+        Side effects:
+            modifies cyl2sec, sec2cyl, vertexes and edges.
+        """
+        self.h.define_shape()
 
-        # Draw the new one
-        #self.h.define_shape()
-        num_sections = 0
-        
         # map segments (lines) to the section that contains them
         self.segment_to_section = {}
         
         vertexes = []
         connections = []
         for sec in self.h.allsec():
+            print sec.name()
             m = re.match(r'axon\[(\d+)\]', sec.name())
             if m is None:
-                raise Exception('could not determine section ID from name: %s' % sec.name())
+                continue
+                #raise Exception('Could not determine section ID from name: %s' % sec.name())
             secid = int(m.groups()[0])
             
             x_sec, y_sec, z_sec, d_sec = self.retrieve_coordinate(sec)
@@ -114,7 +233,6 @@ class hocRender():
                                  z_sec.max() + radius))
             self.cyl2sec[sec_coords_bound] = sec
             self.sec2cyl[sec] = sec_coords_bound
-
 
             for i,xi in enumerate(x_sec):
                 vertexes.append((x_sec[i], y_sec[i], z_sec[i], d_sec[i], secid))
@@ -130,13 +248,17 @@ class hocRender():
             if mode == 'blob':
                 self.drawBlob()
             elif mode == 'volume':
-                self.drawVolume(x, y, z, d, lines)
+                self.drawVolume()
             else:
-                self.drawMeshes(x, y, z, d, lines, mode)
+                self.drawMeshes(mode)
 
         
     def makeVolumeData(self):
-        
+        """
+        Using the current state of vertexes, edges, generates a scalar field
+        Returns:
+            scalar field, idfield (for mapping) and tranform
+        """
         res = 0.4 # resolution of scalar field in microns
         maxdia = 10. # maximum diameter (defines shape of kernel)
         kernel_size = int(maxdia/res) + 1 # width of kernel
@@ -150,12 +272,10 @@ class hocRender():
         sec_id = self.vertexes[:,4]
         
         lines = self.edges
-        
         # decide on dimensions of scalar field
         mx = verlocs[...,:-3].max(axis=0)  # note: skip last 3 due to junk in hoc files
         mn = verlocs.min(axis=0)
-        
-        
+
         xd = (np.max(x) - np.min(x))
         yd = (np.max(y) - np.min(y))
         zd = (np.max(z[:-3]) - np.min(z))
@@ -232,12 +352,11 @@ class hocRender():
         transform.translate(*(mn-w))
         transform.scale(res, res, res)
         transform.translate(1, 1, 1)
-        
         return scfield, idfield, transform
 
-    def drawVolume(self, x, y, z, d, lines):
-        scfield, idfield, transform = self.makeVolumeData(x, y, z, d, lines)
-    
+
+    def drawVolume(self):
+        scfield, idfield, transform = self.makeVolumeData()
         nfdata = np.empty(scfield.shape + (4,), dtype=np.ubyte)
         nfdata[...,0] = 255 #scfield*50
         nfdata[...,1] = 255# scfield*50
@@ -245,7 +364,6 @@ class hocRender():
         nfdata[...,3] = np.clip(scfield*150, 0, 255)
         v = gl.GLVolumeItem(nfdata)
         v.setTransform(transform)
-
         self.w.addItem(v)
 
 
@@ -269,32 +387,48 @@ class hocRender():
         self.mesh = mesh
         self.w.addItem(mesh)
 
+
     def show_section(self, sec_id):
+        """
+        Set the color of sections in the list sec_id
+        """
         colors = np.empty((len(self.mesh_sec_ids), 4))
         colors[:] = 0.3
         colors[sec_id] = 1
         self.set_section_colors(colors)
     
+
     def set_section_colors(self, sec_colors):
+        """
+        Set the colors of multiple sections
+        """
         md = self.mesh.opts['meshdata']
         colors = sec_colors[self.mesh_sec_ids]
         md.setVertexColors(colors)
         self.mesh.meshDataChanged()
 
-    def drawMeshes(self, x, y, z, d, lines, mode):
+
+    def drawMeshes(self,  mode):
+        """
+        Draw remaining mesh figures
+        mode here can be line, sphere or cylinder
+
+        """
+        verlocs = self.vertexes[:, :3]
+        x = verlocs[:,0]
+        y = verlocs[:,1]
+        z = verlocs[:,2]
+        d = self.vertexes[:,3]
         dmax = np.max(d)
-        #wmax = 20.
+        lines = np.vstack(self.edges)
         for c in range(len(lines)-3):
             i = lines[c, 0]
             j = lines[c, 1]
-            # if i < 3:
-            #     print 'xyzd: %6.1f %6.1f %6.1f %6.2f' % (x[i], y[i], z[i], d[i])
             pts = np.vstack([[x[i], x[j]],[y[i], y[j]],[z[i],z[j]]]).transpose()
             if mode == "line":
                 plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
                 self.w.addItem(plt)
             elif mode == 'sphere':
-                print 'I am a sphere'
                 md = gl.MeshData.sphere(rows=10, cols=20, radius=d[i]/2.0) # , length=d(i))
                 colors = np.ones((md.faceCount(), 4), dtype=float)
                 colors[::2,0] = 0
@@ -318,11 +452,9 @@ class hocRender():
                 axis = pg.QtGui.QVector3D.crossProduct(r, p2-p1)
                 ang = r.angle(p2-p1)
                 m5.rotate(ang, axis.x(), axis.y(), axis.z())
-#                m5.rotate(rz*180./np.pi, (x[j]-x[i]), (y[j]-y[i]), (z[j]-z[i]), local=False)
                 m5.translate(x[i],y[i],z[i]+cyllen/2.0) # move into position
-
                 self.w.addItem(m5)
-        #self.draw_mayavi(x, y, z, d, self.edges)
+
 
     def retrieve_coordinate(self, sec):
         """Retrieve the coordinates of the section avoiding duplicates"""
@@ -357,43 +489,147 @@ class hocRender():
         return (np.array(x),np.array(y),np.array(z),np.array(d))
 
 
+    def paintSectionsByType(self, sectionColors, excludeSections = []):
+        """
+        Color the sections in the reconstruction according to their
+        structural type, based on the mapping dictionary in sectionColors
+        Inputs: sectionColors, a dictionary of section names and their associated colors
+            excludeSections: the names of section types that should not be colored (such as "axon")
+        Side-effects: none.
+        """
+        color = np.zeros((self.nsec, 4), dtype=float)
+        for stype in self.Sections:
+            if stype in excludeSections: # skip excluded sections and "parent" sections
+                continue
+            for sno in self.Sections[stype]:
+                color[sno, :] = self.Colors[sectionColors[stype]] # map colors
+                color[sno, 3] = 0.2 # alpha
+        render.set_section_colors(color)
+        self.w.setWindowTitle('hocRender: by Section Type')
+
+
+    def paintSectionsByDensity(self, sectionColors, mechanism, excludeSections = []):
+        """
+        Color the sections in the reconstruction by the density of the selected mechanism
+        in the section
+        Inputs: sectionColors, a dictionary of section names and desired colors
+                mechanism :should be from modelPars.mechnames['mech'], and is a list with
+                    the mech name [0], and the conductance density variable name [1] -
+                    for example: ['na', 'gnabar']
+                excludeSections: a list of sections that should not be painted.
+        """
+
+        color = np.zeros((self.nsec, 4), dtype=float)
+        gmax = 0.
+        for stype in self.Sections:
+            if stype in excludeSections: # everyone is in the synapse and axon, so skip
+                continue
+            for secno in self.Sections[stype]: # check out sections of a given type
+###
+### This routine directly references axon, and it should actually reference
+### the section as indicated in the sections list (which SHOULD be the same).
+### however, this will break the generality of function, as it requires that the primary
+### list of sections be called "axon"
+###
+                ml = self.get_mechanisms(eval('h.axon[%d]' % (secno))) # this is too specific
+                if mechanism[0] in ml:
+                    gsec = self.get_density(eval('h.axon[%d]' % (secno)), mechanism)
+                else:
+                    gsec = 0.
+                if gsec > gmax:
+                    gmax = gsec
+                color[secno, :] = self.Colors[sectionColors[stype]] # map colors
+                color[secno, 3] = gsec # use alpha, but rescale next
+        if gmax > 0:
+            color[:,3] = 0.05 + 0.95*color[:,3]/gmax # set alpha for all sections
+        else:
+            color[:,3] = 0.05
+        self.set_section_colors(color)
+        self.w.setWindowTitle('hocRender: %s' % (mechanism[0]))
 
 
 if __name__ == "__main__":
+    global index, color, render, vdata, videoOpen, vfile, winsize, cycles, maxcycles
     app = pg.mkQApp()
-    pg.dbg()
+    #pg.dbg()
     #h.load_file(1, 'Calyx-68cvt2.hoc')
+    vfile = None
     h.load_file(1, "Calyx-S53Acvt3.hoc")
     render = hocRender(h)
     render.draw_model(modes=['blob'])
-    #render.show()
-    import user
+    sectionColors={'axon': 'r', 'heminode': 'g', 'stalk':'y', 'branch': 'b', 'neck': 'brown',
+            'swelling': 'magenta', 'tip': 'powderblue', 'parentaxon': 'orange', 'synapse': 'k'}
+    render.getSectionLists(sectionColors.keys())
+    render.paintSectionsByType(sectionColors)
+    #render.paintSectionsByDensity()
+    QtGui.QApplication.instance().exec_()
 
-    import pickle
-    vdata = pickle.load(open('data.p'))
-    color = np.zeros((vdata['data'].shape[0], 4), dtype=float)
+
+    # get the time course data at every section...
+    vdata = pickle.load(open('Canonical/Normal_swellings_14.02.04-18.24.23.p'))
+
+    maxcycles = 1
+    cycles = 0
+    videoOpen = False
     index = 0
-    #vdata['data'] = vdata['data'][:,400:550]
-    
+    vfile = None
+    vdata['data'] = vdata['data'][:,375:550]
+    color = np.zeros((vdata['data'].shape[0], 4), dtype=float)
+
     def update():
-        global index, color, render, vdata
-        v = (vdata['data'][:,index] + 50) * 0.02
-        color[:,0] = v
-        color[:,1] = v+0.3
-        color[:,2] = v-0.3
-        color[:,3] = 0.2
+        global index, color, render, vdata, videoOpen, vfile, winsize, cycles, maxcycles
+        # color goes from 0 to 255
+        # vdata range goes from -80 to +20
+        # so scale so that -80 to +20
+
+        v0 = -80 # mV
+        vr = 100. # mV range in scale
+        v = (vdata['data'][:,index] - v0) / vr
+        color[:,0] = v     # R
+        color[:,1] = 1.5*abs(v-0.5) # G
+        color[:,2] = 1.-v # B
+        color[:,3] = 0.1+0.8*v # alpha
         render.set_section_colors(color)
-        
         index = (index + 1) % vdata['data'].shape[1]
-    
+        if index == 0:
+            cycles += 1
+            if cycles >= maxcycles:
+                timer.stop()
+                vfile.release()
+                return
+        img0 = pg.imageToArray(render.w.readQImage())
+        if not videoOpen:
+            winsize = img0.shape[0:2]
+            vfile = cv2.VideoWriter()
+            vfile.open(filename='~/Desktop/Python/PyNeuronLibrary/CalyxModel/video.avi',
+                        fourcc=cv.CV_FOURCC('M', 'P', '4', 'V'), fps=25, frameSize = winsize,
+                        isColor=False)
+            videoOpen = True
+        if vfile.isOpened():
+            print 'writing image'
+            vfile.write(img0)
+
+
     timer = pg.QtCore.QTimer()
     timer.timeout.connect(update)
-    timer.start(0)
-    
+    timer.start(10.)
+
+
     def render_stack(start, stop):
         global index, render, timer
         timer.stop()
+
         for index in range(start, stop):
             update()
-            render.w.readQImage().save('render-%03d.png' % (index-start))
-            
+            #success0, img0 = capwin.read()
+            img0 = pg.imageToArray(render.w.readQImage())
+            # print 'write frame: %d' % index
+            # print '    size: ', img0.shape
+            # print '    max img0: ', np.max(img0[0:2])
+            vfile.write(img0)
+          #  render.w.readQImage().save('render-%03d.png' % (index-start))
+    render_stack(0, vdata['data'].shape[1])
+#    print dir(vfile)
+
+
+    QtGui.QApplication.instance().exec_()
