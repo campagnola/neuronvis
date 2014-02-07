@@ -12,10 +12,10 @@ class HocViewer(gl.GLViewWidget):
     Input:
         h: HocReader instance or "xxxx.hoc" file name
     """
-    def __init__(self, h):
-        if isinstance(h, basestring):
-            h = HocReader(h)
-        self.h = h
+    def __init__(self, hoc):
+        if not isinstance(hoc, HocReader):
+            hoc = HocReader(hoc)
+        self.hr = hoc
         pg.mkQApp()  # make sure there is a QApplication before instantiating any QWidgets.
         super(HocViewer, self).__init__()
         self.resize(720,720)
@@ -36,7 +36,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocVolume instance
         """
-        g = HocVolume(self.h)
+        g = HocVolume(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g
@@ -47,7 +47,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocSurface instance
         """
-        g = HocSurface(self.h)
+        g = HocSurface(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g
@@ -58,7 +58,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocGraph instance
         """
-        g = HocGraph(self.h)
+        g = HocGraph(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g

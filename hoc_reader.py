@@ -12,9 +12,9 @@ class HocReader(object):
     """
     def __init__(self, hoc):
         if isinstance(hoc, basestring):
-            neuron.h.load_file(1, hoc)
+            hoc = neuron.h.load_file(1, hoc)
             
-        self.h = neuron.h
+        self.h = hoc
 
         # geometry containers
         self.edges = None
@@ -51,7 +51,7 @@ class HocReader(object):
         """
         return self.mechanisms[section]
 
-    def get_density(self, section, mechanism, variable):
+    def get_density(self, section, mechanism):
         """
         Get density mechanism that may be found the section.
         mechanism is a list ['name', 'gbarname']. This is needed because
@@ -70,14 +70,18 @@ class HocReader(object):
         gmech = []
         for seg in section:
             try:
-                x =  eval('seg.%s' % mechanism)
-                mecbar = '%s_%s' % (variable, mechanism)
+                x =  getattr(seg,  mechanism[0])
+                mecbar = '%s_%s' % (mechanism[1], mechanism[0])
                 if mecbar in dir(x):
-                    gmech.append(eval('x.%s' % variable))
+                    gmech.append(getattr(x, mechanism[1]))
                 else:
-                    print 'hocRender:get_density did not find the mechanism in dir x'
+                    print 'hoc_reader:get_density did not find the mechanism in dir x'
+            except NameError:
+                return(0.)
             except:
-                print 'hocRender:get_density failed to evaluate the mechanisms... '
+                print 'hoc_reader:get_density failed to evaluate the mechanisms... '
+                raise
+
 
 #        print gmech
         if len(gmech) == 0:
