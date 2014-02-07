@@ -3,7 +3,7 @@ import collections
 import numpy as np
 import pyqtgraph as pg
 
-class HocReader:
+class HocReader(object):
     """
     Provides useful methods for reading hoc structures.
     

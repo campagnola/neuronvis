@@ -34,7 +34,7 @@ Colors = { # colormap
 
 
 
-class HocGraphic:
+class HocGraphic(object):
     """
     Methods common to all Hoc graphical representation classes (HocVolume, 
     HocSurface, etc.)
@@ -183,7 +183,6 @@ class HocSurface(gl.GLMeshItem, HocGraphic):
                     sections are defined by the HocReader.
         """
         colors = sec_colors[self.vertex_sec_ids]
-        print colors
         self.opts['meshdata'].setVertexColors(colors)
         self.meshDataChanged()
 

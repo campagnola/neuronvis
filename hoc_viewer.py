@@ -28,6 +28,7 @@ class HocViewer(gl.GLViewWidget):
         self.addItem(self.g)
         
         self.graphics = []
+        self.video_file = None
 
     def draw_volume(self):
         """
@@ -62,3 +63,40 @@ class HocViewer(gl.GLViewWidget):
         self.addItem(g)
         return g
 
+    def save_frame(self, file_name=None):
+        """
+        Save the currently visible frame to a file. 
+        If no file name is given, then the frame is added on to the currently-
+        accumulating video stack.
+        """
+        if file_name is None:
+            if self.video_file is None:
+                raise Exception("No file name specified and no video storage in progress.")
+            img = pg.imageToArray(self.readQImage())
+            self.video_file.write(img)
+        else:
+            self.readQImage().save(file_name)
+    
+    def begin_video(self, file_name, fps=25):
+        """
+        Begin storing a new video to *file_name*. 
+        New frames are added to the file when save_frame() is called.        
+        """
+        import cv
+        import cv2
+        winsize = self.width(), self.height()
+        self.video_file = cv2.VideoWriter()
+        self.video_file.open(filename=file_name,
+                             fourcc=cv.CV_FOURCC('M', 'P', '4', 'V'), 
+                             fps=fps, 
+                             frameSize=winsize,
+                             isColor=False)
+        
+    def save_video(self):
+        """
+        Finish storing the video created since the last call to begin_video()
+        """
+        self.video_file.release()
+        self.video_file = None
+        
+        

@@ -25,7 +25,8 @@ the hoc file connection structure (specifically: getSectionInfo, and parts of dr
 
 
 import os, sys, pickle
-
+import pyqtgraph as pg
+import numpy as np
 
 # define all commands here.
 commands = {
@@ -61,11 +62,9 @@ else:
 
 # read input file(s)
 if input_file.endswith('.p'):
-    sim_data = pickle.load(input_file)
-    try:
-        hoc_file = sim_data['hoc_file']
-    except KeyError:
-        raise Exception(".p file must have 'hoc_file' key!")
+    from sim_result import SimulationResult
+    sim_data = SimulationResult(input_file)
+    hoc_file = sim_data.hoc_file
 elif input_file.endswith('.hoc'):
     sim_data = None
     hoc_file = input_file
@@ -92,53 +91,67 @@ if command == 'sec-type':
     surf.set_group_colors(section_colors, alpha=0.2)
     
 elif command == 'vm':
+    
     # Render animation of membrane voltage
     if sim_data is None:
         raise Exception('Cannot render Vm: no simulation output specified.')
 
-    maxcycles = 1
-    cycles = 0
-    videoOpen = False
-    index = 0
-    vfile = None
-    vdata['data'] = vdata['data'][:,375:550]
-    color = np.zeros((vdata['data'].shape[0], 4), dtype=float)
+    surf = view.draw_surface()
+    start = 375
+    stop = 550
+    index = start
 
-    def update():
-        global index, color, render, vdata, videoOpen, vfile, winsize, cycles, maxcycles
-        # color goes from 0 to 255
-        # vdata range goes from -80 to +20
-        # so scale so that -80 to +20
-
-        v0 = -80 # mV
-        vr = 100. # mV range in scale
-        v = (vdata['data'][:,index] - v0) / vr
+    def vm_to_color(v):
+        """
+        Convert an array of Vm to array of representative colors
+        """
+        color = np.empty((v.shape[0], 4), dtype=float)
+        v_min = -80 # mV
+        v_range = 100. # mV range in scale
+        v = (v - v_min) / v_range
         color[:,0] = v     # R
         color[:,1] = 1.5*abs(v-0.5) # G
         color[:,2] = 1.-v # B
         color[:,3] = 0.1+0.8*v # alpha
-        render.set_section_colors(color)
-        index = (index + 1) % vdata['data'].shape[1]
-        if index == 0:
-            cycles += 1
-            if cycles >= maxcycles:
-                timer.stop()
-                vfile.release()
-                return
-        img0 = pg.imageToArray(render.w.readQImage())
-        if not videoOpen:
-            import cv
-            import cv2
-            winsize = img0.shape[0:2]
-            vfile = cv2.VideoWriter()
-            vfile.open(filename='~/Desktop/Python/PyNeuronLibrary/CalyxModel/video.avi',
-                        fourcc=cv.CV_FOURCC('M', 'P', '4', 'V'), fps=25, frameSize = winsize,
-                        isColor=False)
-            videoOpen = True
-        if vfile.isOpened():
-            print 'writing image'
-            vfile.write(img0)
+        return color
 
+    def set_index(index):
+        """
+        Set the currently-displayed time index.
+        """
+        v = sim_data.data['Vm'][:,index]
+        color = vm_to_color(v)
+        
+        # note that we assume sections are ordered the same in the HocReader 
+        # as they are in the results data, but really we should use 
+        # sim_data.section_map to ensure this is True.
+        surf.set_section_colors(color)
+        
+
+    def update():
+        global index, start, stop, sim_data, surf
+
+        set_index(index)
+        
+        index += 1
+        if index >= stop:
+            index = start
+
+    def record(file_name):
+        """
+        Record a video from *start* to *stop* with the current view
+        configuration.
+        """
+        timer.stop()
+        view.begin_video(file_name)
+        try:
+            for i in range(start, stop):
+                set_index(i)
+                pg.Qt.QtGui.QApplication.processEvents()
+                view.save_frame()
+                print("%d / %d" % (i, stop))
+        finally:
+            view.save_video()
 
     timer = pg.QtCore.QTimer()
     timer.timeout.connect(update)
@@ -148,25 +161,3 @@ elif command == 'vm':
 if sys.flags.interactive == 0:
     import pyqtgraph as pg
     pg.Qt.QtGui.QApplication.exec_()
-
-
-
-# Functions to be used from interactive prompt:
-##########################################################
-
-def render_stack(start, stop):
-    global index, render, timer
-    timer.stop()
-
-    for index in range(start, stop):
-        update()
-        #success0, img0 = capwin.read()
-        img0 = pg.imageToArray(render.w.readQImage())
-        # print 'write frame: %d' % index
-        # print '    size: ', img0.shape
-        # print '    max img0: ', np.max(img0[0:2])
-        vfile.write(img0)
-        #  render.w.readQImage().save('render-%03d.png' % (index-start))
-#render_stack(0, vdata['data'].shape[1])
-#    print dir(vfile)
-
