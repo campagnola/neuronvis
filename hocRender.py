@@ -49,6 +49,7 @@ def error():
     sys.exit(-1)
 
 if len(sys.argv) < 2 or not os.path.isfile(sys.argv[1]):
+    print 'file not found'
     error()
 input_file = sys.argv[1]
 
@@ -62,9 +63,12 @@ else:
 
 # read input file(s)
 if input_file.endswith('.p'):
+    print 'reading input file'
     from sim_result import SimulationResult
     sim_data = SimulationResult(input_file)
+    print 'simdata: ', sim_data
     hoc_file = sim_data.hoc_file
+    print 'hoc_file: ', hoc_file
 elif input_file.endswith('.hoc'):
     sim_data = None
     hoc_file = input_file
@@ -77,6 +81,8 @@ from hoc_reader import HocReader
 from hoc_viewer import HocViewer
 hoc = HocReader(hoc_file)
 view = HocViewer(hoc)
+print 'hoc file: ', hoc_file
+print 'hoc: ', hoc
 
 
 # Handle commands
@@ -100,6 +106,9 @@ elif command == 'vm':
     start = 375
     stop = 550
     index = start
+    loopCount = 0
+    nloop = 1
+
 
     def vm_to_color(v):
         """
@@ -119,7 +128,8 @@ elif command == 'vm':
         """
         Set the currently-displayed time index.
         """
-        v = sim_data.data['Vm'][:,index]
+        #v = sim_data.data['Vm'][:,index]
+        v = sim_data.data[:,index]
         color = vm_to_color(v)
         
         # note that we assume sections are ordered the same in the HocReader 
@@ -129,13 +139,17 @@ elif command == 'vm':
         
 
     def update():
-        global index, start, stop, sim_data, surf
+        global index, start, stop, sim_data, surf, loopCount, nloop
 
         set_index(index)
-        
+
         index += 1
         if index >= stop:
+            loopCount += 1
+            if loopCount >= nloop:
+                timer.stop()
             index = start
+
 
     def record(file_name):
         """
@@ -148,14 +162,17 @@ elif command == 'vm':
             for i in range(start, stop):
                 set_index(i)
                 pg.Qt.QtGui.QApplication.processEvents()
-                view.save_frame()
+                view.save_frame(os.path.join(os.getcwd(), 'Video/video_%04d.png' % (i)))
                 print("%d / %d" % (i, stop))
         finally:
             view.save_video()
 
+
+
     timer = pg.QtCore.QTimer()
     timer.timeout.connect(update)
     timer.start(10.)
+    record(os.path.join(os.getcwd(), 'video.avi'))
 
 
 if sys.flags.interactive == 0:

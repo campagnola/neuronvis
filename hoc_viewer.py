@@ -21,7 +21,7 @@ class HocViewer(gl.GLViewWidget):
         self.resize(720,720)
         self.show()
         self.setWindowTitle('hocRender')
-        self.setCameraPosition(distance=300.)
+        self.setCameraPosition(distance=200., elevation=45., azimuth=45.)
 
         self.g = gl.GLGridItem()
         self.g.scale(2,2,1)
@@ -69,13 +69,18 @@ class HocViewer(gl.GLViewWidget):
         If no file name is given, then the frame is added on to the currently-
         accumulating video stack.
         """
+        print 'saveframe, filename: ', file_name
         if file_name is None:
             if self.video_file is None:
                 raise Exception("No file name specified and no video storage in progress.")
             img = pg.imageToArray(self.readQImage())
+            print 'writing img: ', img.shape
             self.video_file.write(img)
+            print 'did write'
         else:
             self.readQImage().save(file_name)
+        print 'save frame to file: ', file_name
+
     
     def begin_video(self, file_name, fps=25):
         """
@@ -91,11 +96,13 @@ class HocViewer(gl.GLViewWidget):
                              fps=fps, 
                              frameSize=winsize,
                              isColor=False)
+        print 'opened video file: ', file_name
         
     def save_video(self):
         """
         Finish storing the video created since the last call to begin_video()
         """
+        print 'finished video file'
         self.video_file.release()
         self.video_file = None
         

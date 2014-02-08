@@ -1,8 +1,11 @@
+from neuron import h
 import neuron
 import collections
 import numpy as np
 import pyqtgraph as pg
+import os
 
+import os.path
 class HocReader(object):
     """
     Provides useful methods for reading hoc structures.
@@ -12,9 +15,14 @@ class HocReader(object):
     """
     def __init__(self, hoc):
         if isinstance(hoc, basestring):
-            hoc = neuron.h.load_file(1, hoc)
-            
-        self.h = hoc
+            fullfile = os.path.join(os.getcwd(), hoc)
+            success = neuron.h.load_file(1, fullfile)
+            if success == 0: # indicates failure to read the file
+                raise NameError("Did not find the hoc file: %s" % (fullfile))
+            self.h = h # save a copy of the hoc object itself.
+        else:
+            self.h = hoc # just use theh passed argument
+        print 'hoc in hocreader: ', self.h
 
         # geometry containers
         self.edges = None
