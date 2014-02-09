@@ -32,6 +32,7 @@ import numpy as np
 commands = {
     'sec-type': "Sections colored by type",
     'vm': "Animation of per-section membrane voltage over time.",
+    'graph': "Simple wireframe rendering.",
     }
 
 # Handle command line arguments.
@@ -89,7 +90,8 @@ if command == 'sec-type':
     hoc.read_hoc_section_lists(section_colors.keys())
     surf = view.draw_surface()
     surf.set_group_colors(section_colors, alpha=0.2)
-    
+elif command == 'graph':
+    g = view.draw_graph()
 elif command == 'vm':
     
     # Render animation of membrane voltage

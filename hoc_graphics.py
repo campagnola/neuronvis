@@ -198,20 +198,24 @@ class HocGraph(gl.GLLinePlotItem, HocGraphic):
     """
     def __init__(self, h):
         self.h = h
+        verts, edges = h.get_geometry()
+        edges = edges.flatten()
+        verts_indexed = verts[edges]
+        super(HocGraph, self).__init__(pos=verts_indexed['pos'], mode='lines')
         
-        verlocs = self.vertexes[:, :3]
-        x = verlocs[:,0]
-        y = verlocs[:,1]
-        z = verlocs[:,2]
-        d = self.vertexes[:,3]
-        dmax = np.max(d)
-        lines = np.vstack(self.edges)
-        for c in range(len(lines)-3):
-            i = lines[c, 0]
-            j = lines[c, 1]
-            pts = np.vstack([[x[i], x[j]],[y[i], y[j]],[z[i],z[j]]]).transpose()
-            plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
-            self.w.addItem(plt)
+        #verlocs = self.vertexes[:, :3]
+        #x = verlocs[:,0]
+        #y = verlocs[:,1]
+        #z = verlocs[:,2]
+        #d = self.vertexes[:,3]
+        #dmax = np.max(d)
+        #lines = np.vstack(self.edges)
+        #for c in range(len(lines)-3):
+            #i = lines[c, 0]
+            #j = lines[c, 1]
+            #pts = np.vstack([[x[i], x[j]],[y[i], y[j]],[z[i],z[j]]]).transpose()
+            #plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
+            #self.w.addItem(plt)
 
 
         

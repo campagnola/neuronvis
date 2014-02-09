@@ -52,7 +52,7 @@ class HocViewer(gl.GLViewWidget):
         self.addItem(g)
         return g
 
-    def draw_volume(self):
+    def draw_graph(self):
         """
         Add a HocGraph graphic to this view.
         
