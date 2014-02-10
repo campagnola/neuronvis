@@ -4,6 +4,7 @@ import collections
 import numpy as np
 import pyqtgraph as pg
 import os
+import re
 
 import os.path
 class HocReader(object):
@@ -14,15 +15,19 @@ class HocReader(object):
         hoc: a hoc object or a "xxx.hoc" file name.
     """
     def __init__(self, hoc):
+        self.file_loaded = False
         if isinstance(hoc, basestring):
             fullfile = os.path.join(os.getcwd(), hoc)
+            if not os.path.isfile(fullfile):
+                print "File not found: %s" % (fullfile)
+                return
             success = neuron.h.load_file(1, fullfile)
             if success == 0: # indicates failure to read the file
-                raise NameError("Did not find the hoc file: %s" % (fullfile))
+                raise NameError("Found file, but NEURON load failed: %s" % (fullfile))
             self.h = h # save a copy of the hoc object itself.
         else:
-            self.h = hoc # just use theh passed argument
-        print 'hoc in hocreader: ', self.h
+            self.h = hoc # just use the passed argument
+            self.file_loaded = True
 
         # geometry containers
         self.edges = None
@@ -49,6 +54,24 @@ class HocReader(object):
             return self.sections[sec_name]
         except KeyError:
             raise KeyError("No section named '%s'" % sec_name)
+
+
+    def get_sections(self):
+        """
+        go through all the sections and find the names of the sections and all of their
+        parts (ids). Returns a dict, of sec: [id0, id1...]
+
+        """
+        secnames = {}
+        resec = re.compile('(\w+)\[(\d*)\]')
+        for sec in self.h.allsec():
+            g = resec.match(sec.name())
+            if g.group(1) not in secnames.keys():
+                secnames[g.group(1)] = [int(g.group(2))]
+            else:
+                secnames[g.group(1)].append(int(g.group(2)))
+        return secnames
+
 
     def get_mechanisms(self, section):
         """
@@ -179,10 +202,11 @@ class HocReader(object):
             var = getattr(self.h, hoc_name)
             self.add_section_group(group_name, list(var))
 
+
     def get_geometry(self):
         """
         modified from:neuronvisio
-        Generate structures that describe the geometry of the sections.
+        Generate structures that describe the geometry of the sections and their segments (all segments are returned)
         Inputs: None
         Outputs: vertexes: record array containing {pos: (x,y,z), dia, sec_id}
                            for each segment.

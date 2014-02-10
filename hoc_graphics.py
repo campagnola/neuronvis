@@ -31,6 +31,8 @@ Colors = { # colormap
     'pink': np.array([255,190,206,255])/255.,
 }
 
+colorMap = ['b', 'g', 'r', 'c', 'y', 'm' 'powderblue', 'brown', 'orange', 'pink']
+
 
 
 
