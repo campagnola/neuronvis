@@ -72,7 +72,12 @@ class HocGraphic(object):
         sec_colors[:] = default_color
         mechmax = 0.
         for group_name, color in colors.items():
-            for sec_name in self.h.get_section_group(group_name):
+            try:
+                sections = self.h.get_section_group(group_name)
+            except KeyError:
+                continue
+            
+            for sec_name in sections:
                 if isinstance(color, basestring):
                     color = Colors[color]
                 index = self.h.sec_index[sec_name]

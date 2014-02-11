@@ -69,7 +69,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocCylinders instance
         """
-        g = HocCylinders(self.h)
+        g = HocCylinders(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g

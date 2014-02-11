@@ -19,8 +19,7 @@ class HocReader(object):
         if isinstance(hoc, basestring):
             fullfile = os.path.join(os.getcwd(), hoc)
             if not os.path.isfile(fullfile):
-                print "File not found: %s" % (fullfile)
-                return
+                raise Exception("File not found: %s" % (fullfile))
             success = neuron.h.load_file(1, fullfile)
             if success == 0: # indicates failure to read the file
                 raise NameError("Found file, but NEURON load failed: %s" % (fullfile))
@@ -46,10 +45,29 @@ class HocReader(object):
         
         # populate self.sections and self.mechanisms
         self._read_section_info()
-        self.find_section_groups()
-        if len(self.sec_groups) == 0: # did not find section groups that way, so use names instead
-            names = self.get_sections()
-            self.read_hoc_section_lists(names.keys())
+        
+        # auto-generate section groups based on either hoc section lists, or
+        # on section name prefixes.
+        sec_lists = self.get_section_lists()
+        sec_prefixes = self.get_section_prefixes()
+        
+        if len(sec_lists) > 0 and len(sec_prefixes) == 1:
+            self.add_groups_by_section_list(sec_lists)
+            
+        elif len(sec_lists) == 0 and len(sec_prefixes) > 1:
+            #self.add_groups_by_section_prefix(sec_prefixes)
+            for group, sections in sec_prefixes.items():
+                self.add_section_group(group, sections)
+            
+        else:
+            print "Lists:", sec_lists
+            print "Prefixes:", sec_prefixes
+            raise Exception("HOC has groupings by section list and by section prefix. What to do?")
+            
+        #self.find_section_groups()
+        #if len(self.sec_groups) == 0: # did not find section groups that way, so use names instead
+            #names = self.get_sections()
+            #self.read_hoc_section_lists(names.keys())
 
 
     def get_section(self, sec_name):
@@ -62,22 +80,27 @@ class HocReader(object):
             raise KeyError("No section named '%s'" % sec_name)
 
 
-    def get_sections(self):
+    def get_section_prefixes(self):
         """
-        go through all the sections and find the names of the sections and all of their
-        parts (ids). Returns a dict, of sec: [id0, id1...]
-
+        Go through all the sections and generate a dictionary mapping their
+        name prefixes to the list of sections with that prefix. 
+        
+        For example, with sections names axon[0], axon[1], ais[0], and soma[0],
+        we would generate the following structure:
+        
+            {'axon': ['axon[0]', 'axon[1]'],
+             'ais':  ['ais[0]'],
+             'soma': ['soma[0]']}
         """
-        secnames = {}
-        resec = re.compile('(\w+)\[(\d*)\]')
-        for sec in self.h.allsec():
-            g = resec.match(sec.name())
-            if g.group(1) not in secnames.keys():
-                secnames[g.group(1)] = [int(g.group(2))]
-            else:
-                secnames[g.group(1)].append(int(g.group(2)))
-        return secnames
-
+        prefixes = {}
+        regex = re.compile('(?P<prefix>\w+)\[(\d*)\]')
+        for sec_name in self.sections:
+            g = regex.match(sec_name)
+            if g is None:
+                continue
+            prefix = g.group('prefix')
+            prefixes.setdefault(prefix, []).append(sec_name)
+        return prefixes
 
     def get_mechanisms(self, section):
         """
@@ -163,33 +186,25 @@ class HocReader(object):
                     mechs.add(mech.name())
             self.mechanisms[sec.name] = mechs
 
-    def find_section_groups(self):
+    def hoc_names(self):
         """
-        Search through all of the hoc variables to find those that are "SectionLists"
-        If a sectionList is found, then calls add_section_group to build the "grouping"
-        lists. The name is pulled from the hoc name assigned to the SectionList, and the
-        contents of the group are the hoc sections that are part of that group
+        Return a list of the names of all hoc objects.
+        NOTE: this method requires NEURON >= 7.3
         """
-        sid = re.compile('(?P<sectionlist>SectionList\[\d+\])')
+        names = []
         for hvar in dir(self.h): # look through the whole list, no other way
             try:
-                if hvar in ['nseg']: # some variables can't be pointed to...
+                # some variables can't be pointed to...
+                if hvar in ['nseg', 'diam_changed', 'nrn_shape_changed_', 
+                            'secondorder', 'stoprun']: 
                     continue
                 u = getattr(self.h, hvar)
-                hname = u.hname()
+                names.append(u.hname())
             except:
                 continue
+        return names
 
-            m = sid.match(hname)
-            sections=[]
-            if m is not None:
-                r = eval('dir(self.h.%s)' % hvar)
-                for v in getattr(self.h, hvar):
-                    sections.append(v)
-                self.add_section_group(hvar, sections)
-
-
-    def add_section_group(self, name, sections):
+    def add_section_group(self, name, sections, overwrite=False):
         """
         Declare a grouping of sections (or section names). Sections may be
         grouped by any arbitrary criteria (cell, anatomical type, etc).
@@ -199,9 +214,9 @@ class HocReader(object):
             sections: list of section names or hoc Section objects.
         
         """
-        assert name not in self.sec_groups
- #       if name in self.sec_groups:
- #           return
+        if name in self.sec_groups and not overwrite:
+            raise Exception("Group name %s is already used (use overwrite=True)." % name)
+        
         group = set()
         for sec in sections:
             if not isinstance(sec, basestring):
@@ -214,8 +229,14 @@ class HocReader(object):
         Return the set of section names in the group *name*.
         """
         return self.sec_groups[name]
+    
+    def get_section_lists(self):
+        """
+        Search through all of the hoc variables to find those that are "SectionLists"
+        """
+        return [name for name in self.hoc_names() if name.startswith('SectionList[')]
         
-    def read_hoc_section_lists(self, names):
+    def add_groups_by_section_list(self, names):
         """
         Add a new section groups from the hoc variables indicated in *names*.
         
@@ -321,10 +342,10 @@ class HocReader(object):
                 coordinates.
         """
         res = 0.4 # resolution of scalar field in microns
-        maxdia = 10. # maximum diameter (defines shape of kernel)
         kernel_size = int(maxdia/res) + 1 # width of kernel
         
         vertexes, lines = self.get_geometry()
+        maxdia = vertexes['dia'].max() # maximum diameter (defines shape of kernel)
         
         # read vertex data
         pos = vertexes['pos']
