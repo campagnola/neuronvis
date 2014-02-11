@@ -31,7 +31,7 @@ Colors = { # colormap
     'pink': np.array([255,190,206,255])/255.,
 }
 
-colorMap = ['b', 'g', 'r', 'c', 'y', 'm' 'powderblue', 'brown', 'orange', 'pink']
+colorMap = ['b', 'g', 'r', 'c', 'y', 'm', 'powderblue', 'brown', 'orange', 'pink']
 
 
 
@@ -44,6 +44,9 @@ class HocGraphic(object):
     """
     def __init__(self, h):
         self.h = h
+
+    def get_color_map(self, i):
+        return colorMap[i]
 
     def set_section_colors(self, colors):
         """
@@ -76,10 +79,12 @@ class HocGraphic(object):
                 sec_colors[index] = color
                 if mechanism is not None:
                     g = self.h.get_density(self.h.sections[sec_name], mechanism)
+#                    print 'section: %s, gmax = %f' % (sec_name, g)
                     mechmax  = max(mechmax, g)
                     sec_colors[index,3] = g
                 elif alpha is not None:
                     sec_colors[index, 3] = alpha
+#            print mechmax
         if mechanism is not None and mechmax > 0:
             sec_colors[:,3] = 0.05 + 0.95*sec_colors[:,3]/mechmax # set alpha for all sections
         self.set_section_colors(sec_colors)

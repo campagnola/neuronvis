@@ -105,15 +105,15 @@ section_colors = {
 
 if command == 'sec-type':
     # Color sections by type.
-    section_list = hoc.get_sections(hoc.h)
+    section_list = hoc.get_sections()
     if len(section_list) > 1: # multiple names, so assign colors to structure type
         section_colors = {}
         for i, s in enumerate(section_list.keys()):
             section_colors[s] = hoc_graphics.colorMap[i]
     else: # single section name, assign colors to SectionList types:
-        section_colors={'axon': 'r', 'heminode': 'g', 'stalk':'y', 'branch': 'b', 'neck': 'brown',
+        section_colors={'heminode': 'g', 'stalk':'y', 'branch': 'b', 'neck': 'brown',
             'swelling': 'magenta', 'tip': 'powderblue', 'parentaxon': 'orange', 'synapse': 'k'}
-    hoc.read_hoc_section_lists(section_colors.keys())
+    #hoc.read_hoc_section_lists(section_colors.keys())
     surf = view.draw_surface()
     surf.set_group_colors(section_colors, alpha=0.35)
 elif command == 'graph':
