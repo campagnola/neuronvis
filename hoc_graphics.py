@@ -197,72 +197,77 @@ class HocGraph(gl.GLLinePlotItem, HocGraphic):
         h: HocReader instance
     """
     def __init__(self, h):
+        gl.GLLinePlotItem.__init__(self)
         self.h = h
         verts, edges = h.get_geometry()
+        
+        # Prefer this method, but item does not support per-vertex width:
         edges = edges.flatten()
         verts_indexed = verts[edges]
+        self.vertex_sec_ids = verts_indexed['sec_index']
         super(HocGraph, self).__init__(pos=verts_indexed['pos'], mode='lines')
         
-        #verlocs = self.vertexes[:, :3]
-        #x = verlocs[:,0]
-        #y = verlocs[:,1]
-        #z = verlocs[:,2]
-        #d = self.vertexes[:,3]
-        #dmax = np.max(d)
-        #lines = np.vstack(self.edges)
-        #for c in range(len(lines)-3):
-            #i = lines[c, 0]
-            #j = lines[c, 1]
-            #pts = np.vstack([[x[i], x[j]],[y[i], y[j]],[z[i],z[j]]]).transpose()
-            #plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
-            #self.w.addItem(plt)
+        # 
+        #self.lines = []
+        #for edge in edges:
+            #w = (verts['dia'][edge[0]] + verts['dia'][edge[1]]) * 0.5
+            #self.lines.append(gl.GLLinePlotItem(pos=verts['pos'][edge], width=w))
+            #self.lines[-1].setParentItem(self)
 
-
+    def set_section_colors(self, sec_colors):
+        colors = sec_colors[self.vertex_sec_ids]
+        self.setData(color=colors)
         
-    #def drawMeshes(self,  mode):
-        #"""
-        #Draw remaining mesh figures
-        #mode here can be line, sphere or cylinder
-
-        #"""
-        #verlocs = self.vertexes[:, :3]
-        #x = verlocs[:,0]
-        #y = verlocs[:,1]
-        #z = verlocs[:,2]
-        #d = self.vertexes[:,3]
-        #dmax = np.max(d)
-        #lines = np.vstack(self.edges)
-        #for c in range(len(lines)-3):
-            #i = lines[c, 0]
-            #j = lines[c, 1]
-            #pts = np.vstack([[x[i], x[j]],[y[i], y[j]],[z[i],z[j]]]).transpose()
-            #if mode == "line":
-                #plt = gl.GLLinePlotItem(pos=pts, width =(d[i]+d[j])/(2.), color=pg.glColor((int(255.*d[i]/dmax), 128)), connected=True)
-                #self.w.addItem(plt)
-            #elif mode == 'sphere':
-                #md = gl.MeshData.sphere(rows=10, cols=20, radius=d[i]/2.0) # , length=d(i))
-                #colors = np.ones((md.faceCount(), 4), dtype=float)
-                #colors[::2,0] = 0
-                #colors[:,1] = np.linspace(0, 1, colors.shape[0])
-                #md.setFaceColors(colors)
-                #m5 = gl.GLMeshItem(meshdata=md, smooth=False, drawEdges=False)
-                #m5.translate(x[i],y[i],z[i])
-                #self.w.addItem(m5)
-            #elif mode == "cylinder":
-                #cyllen = np.sqrt((x[j]-x[i])**2.0 + (y[j]-y[i])**2.0 + (z[j]-z[i])**2.0)
-                #md = gl.MeshData.cylinder(rows=1, cols=8, radius=[d[i]/2., d[j]/2.], length=cyllen)
-                #colors = np.ones((md.faceCount(), 4), dtype=float)
-                #colors[::2,0] = 0
-                #colors[:,1] = np.linspace(0, 1, colors.shape[0])
-                ##colors[:,1] = (int(255.*d[i]/dmax), 128)
-                #md.setFaceColors(colors)
-                #m5 = gl.GLMeshItem(meshdata=md, smooth=True, drawEdges=False)
-                #p2 = pg.Vector(x[j], y[j], z[j])
-                #p1 = pg.Vector(x[i], y[i], z[i])
-                #r = pg.Vector(0,0,1)
-                #axis = pg.QtGui.QVector3D.crossProduct(r, p2-p1)
-                #ang = r.angle(p2-p1)
-                #m5.rotate(ang, axis.x(), axis.y(), axis.z())
-                #m5.translate(x[i],y[i],z[i]+cyllen/2.0) # move into position
-                #self.w.addItem(m5)
-
+    
+class HocCylinders(gl.GLMeshItem, HocGraphic):
+    """
+    Subclass of GLMesgItem that draws a cylinder representation of the geometry
+    specified by a HocReader.
+    
+    Input:
+        h: HocReader instance
+    """
+    def __init__(self, h):
+        self.h = h
+        verts, edges = h.get_geometry()
+        
+        meshes = []
+        sec_ids = []
+        for edge in edges:
+            ends = verts['pos'][edge]
+            dia = verts['dia'][edge]
+            sec_id = verts['sec_index'][edge[0]]
+            
+            dif = ends[1]-ends[0]
+            length = (dif**2).sum() ** 0.5
+            
+            mesh = gl.MeshData.cylinder(rows=1, cols=8, radius=[dia[0]/2., dia[1]/2.], length=length)
+            mesh_verts = mesh.vertexes(indexed='faces')
+            
+            # Rotate cylinder vertexes to match segment
+            p1 = pg.Vector(*ends[0])
+            p2 = pg.Vector(*ends[1])
+            r = pg.Vector(0,0,1)
+            axis = pg.QtGui.QVector3D.crossProduct(r, p2-p1)
+            ang = r.angle(p2-p1)
+            tr = pg.Transform3D()
+            tr.translate(ends[0][0], ends[0][1], ends[0][2]+length/2.0) # move into position
+            tr.rotate(ang, axis.x(), axis.y(), axis.z())
+            
+            mesh_verts = pg.transformCoordinates(tr, mesh_verts, transpose=True)
+            
+            sec_id_array = np.empty(mesh_verts.shape[0]*3, dtype=int)
+            sec_id_array[:] = sec_id
+            meshes.append(mesh_verts)
+            sec_ids.append(sec_id_array)
+        
+        self.vertex_sec_ids = np.concatenate(sec_ids, axis=0)
+        mesh_verts = np.concatenate(meshes, axis=0)
+        md = gl.MeshData(vertexes=mesh_verts)
+        gl.GLMeshItem.__init__(self, meshdata=md, shader='shaded')
+            
+    def set_section_colors(self, sec_colors):
+        colors = sec_colors[self.vertex_sec_ids]
+        self.opts['meshdata'].setVertexColors(colors, indexed='faces')
+        self.meshDataChanged()
+        

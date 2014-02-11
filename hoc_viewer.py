@@ -62,6 +62,18 @@ class HocViewer(gl.GLViewWidget):
         self.graphics.append(g)
         self.addItem(g)
         return g
+    
+    def draw_cylinders(self):
+        """
+        Add a HocCylinders graphic to this view.
+        
+        Returns:  HocCylinders instance
+        """
+        g = HocCylinders(self.h)
+        self.graphics.append(g)
+        self.addItem(g)
+        return g
+        
 
     def save_frame(self, file_name=None):
         """

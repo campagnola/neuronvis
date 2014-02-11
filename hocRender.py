@@ -33,6 +33,7 @@ commands = {
     'sec-type': "Sections colored by type",
     'vm': "Animation of per-section membrane voltage over time.",
     'graph': "Simple wireframe rendering.",
+    'cylinders': "Simple cylinder rendering.",
     }
 
 # Handle command line arguments.
@@ -83,15 +84,30 @@ view = HocViewer(hoc)
 # Handle commands
 ##########################################################
 
+section_colors = {
+    'axon': 'r', 
+    'heminode': 'g', 
+    'stalk':'y', 
+    'branch': 'b', 
+    'neck': 'brown',
+    'swelling': 'magenta', 
+    'tip': 'powderblue', 
+    'parentaxon': 'orange', 
+    'synapse': 'k'}
+
 if command == 'sec-type':
     # Color sections by type.
-    section_colors={'axon': 'r', 'heminode': 'g', 'stalk':'y', 'branch': 'b', 'neck': 'brown',
-            'swelling': 'magenta', 'tip': 'powderblue', 'parentaxon': 'orange', 'synapse': 'k'}
     hoc.read_hoc_section_lists(section_colors.keys())
     surf = view.draw_surface()
     surf.set_group_colors(section_colors, alpha=0.2)
 elif command == 'graph':
     g = view.draw_graph()
+    hoc.read_hoc_section_lists(section_colors.keys())
+    g.set_group_colors(section_colors)
+elif command == 'cylinders':
+    g = view.draw_cylinders()
+    hoc.read_hoc_section_lists(section_colors.keys())
+    g.set_group_colors(section_colors)
 elif command == 'vm':
     
     # Render animation of membrane voltage
