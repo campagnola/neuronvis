@@ -24,6 +24,7 @@ class HocReader(object):
             success = neuron.h.load_file(1, fullfile)
             if success == 0: # indicates failure to read the file
                 raise NameError("Found file, but NEURON load failed: %s" % (fullfile))
+            self.file_loaded = True
             self.h = h # save a copy of the hoc object itself.
         else:
             self.h = hoc # just use the passed argument
@@ -45,6 +46,11 @@ class HocReader(object):
         
         # populate self.sections and self.mechanisms
         self._read_section_info()
+        self.find_section_groups()
+        if len(self.sec_groups) == 0: # did not find section groups that way, so use names instead
+            names = self.get_sections()
+            self.read_hoc_section_lists(names.keys())
+
 
     def get_section(self, sec_name):
         """
@@ -157,6 +163,32 @@ class HocReader(object):
                     mechs.add(mech.name())
             self.mechanisms[sec.name] = mechs
 
+    def find_section_groups(self):
+        """
+        Search through all of the hoc variables to find those that are "SectionLists"
+        If a sectionList is found, then calls add_section_group to build the "grouping"
+        lists. The name is pulled from the hoc name assigned to the SectionList, and the
+        contents of the group are the hoc sections that are part of that group
+        """
+        sid = re.compile('(?P<sectionlist>SectionList\[\d+\])')
+        for hvar in dir(self.h): # look through the whole list, no other way
+            try:
+                if hvar in ['nseg']: # some variables can't be pointed to...
+                    continue
+                u = getattr(self.h, hvar)
+                hname = u.hname()
+            except:
+                continue
+
+            m = sid.match(hname)
+            sections=[]
+            if m is not None:
+                r = eval('dir(self.h.%s)' % hvar)
+                for v in getattr(self.h, hvar):
+                    sections.append(v)
+                self.add_section_group(hvar, sections)
+
+
     def add_section_group(self, name, sections):
         """
         Declare a grouping of sections (or section names). Sections may be
@@ -168,6 +200,8 @@ class HocReader(object):
         
         """
         assert name not in self.sec_groups
+ #       if name in self.sec_groups:
+ #           return
         group = set()
         for sec in sections:
             if not isinstance(sec, basestring):
@@ -197,7 +231,6 @@ class HocReader(object):
         # exactly the same as the names of hoc lists.
         if not isinstance(names, dict):
             names = {name:name for name in names}
-            
         for hoc_name, group_name in names.items():
             var = getattr(self.h, hoc_name)
             self.add_section_group(group_name, list(var))
