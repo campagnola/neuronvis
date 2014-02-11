@@ -50,24 +50,16 @@ class HocReader(object):
         # on section name prefixes.
         sec_lists = self.get_section_lists()
         sec_prefixes = self.get_section_prefixes()
+
         
-        if len(sec_lists) > 0 and len(sec_prefixes) == 1:
+        # Add groupings by section list if possible:
+        if len(sec_lists) > 1:
             self.add_groups_by_section_list(sec_lists)
             
-        elif len(sec_lists) == 0 and len(sec_prefixes) > 1:
-            #self.add_groups_by_section_prefix(sec_prefixes)
+        # Otherwise, try section prefixes
+        elif len(sec_prefixes) > 1:
             for group, sections in sec_prefixes.items():
                 self.add_section_group(group, sections)
-            
-        else:
-            print "Lists:", sec_lists
-            print "Prefixes:", sec_prefixes
-            raise Exception("HOC has groupings by section list and by section prefix. What to do?")
-            
-        #self.find_section_groups()
-        #if len(self.sec_groups) == 0: # did not find section groups that way, so use names instead
-            #names = self.get_sections()
-            #self.read_hoc_section_lists(names.keys())
 
 
     def get_section(self, sec_name):
@@ -186,12 +178,12 @@ class HocReader(object):
                     mechs.add(mech.name())
             self.mechanisms[sec.name] = mechs
 
-    def hoc_names(self):
+    def hoc_namespace(self):
         """
-        Return a list of the names of all hoc objects.
+        Return a dict of the HOC namespace {'variable_name': hoc_object}.
         NOTE: this method requires NEURON >= 7.3
         """
-        names = []
+        names = {}
         for hvar in dir(self.h): # look through the whole list, no other way
             try:
                 # some variables can't be pointed to...
@@ -199,10 +191,25 @@ class HocReader(object):
                             'secondorder', 'stoprun']: 
                     continue
                 u = getattr(self.h, hvar)
-                names.append(u.hname())
+                names[hvar] = u
             except:
                 continue
         return names
+    
+    def find_hoc_hname(self, regex):
+        """
+        Return a list of the names of HOC objects whose *hname* matches regex.        
+        """
+        objs = []
+        ns = self.hoc_namespace()
+        for n, v in ns.items():
+            try:
+                hname = v.hname()
+                if re.match(regex, hname):
+                    objs.append(n)
+            except:
+                continue
+        return objs
 
     def add_section_group(self, name, sections, overwrite=False):
         """
@@ -234,7 +241,9 @@ class HocReader(object):
         """
         Search through all of the hoc variables to find those that are "SectionLists"
         """
-        return [name for name in self.hoc_names() if name.startswith('SectionList[')]
+        return self.find_hoc_hname(regex=r'SectionList\[')
+        #ns = self.hoc_namespace()
+        #return [name for name in ns if ns[name].hname().startswith('SectionList[')]
         
     def add_groups_by_section_list(self, names):
         """
@@ -331,21 +340,24 @@ class HocReader(object):
         return (np.array(x),np.array(y),np.array(z),np.array(d))
 
 
-    def make_volume_data(self):
+    def make_volume_data(self, resolution=0.4, max_size=100e6):
         """
         Using the current state of vertexes, edges, generates a scalar field
         useful for building isosurface or volumetric renderings.
+        Input:
+            resolution: width (um) of a single voxel in the scalar field.
+            max_size: maximum allowed scalar field size (bytes).
         Returns:
             * 3D scalar field indicating distance from nearest membrane,
             * 3D field indicating section IDs of nearest membrane,
             * QTransform that maps from 3D array indexes to original vertex 
                 coordinates.
         """
-        res = 0.4 # resolution of scalar field in microns
-        kernel_size = int(maxdia/res) + 1 # width of kernel
-        
         vertexes, lines = self.get_geometry()
+        
         maxdia = vertexes['dia'].max() # maximum diameter (defines shape of kernel)
+        kernel_size = int(maxdia/resolution) + 1 # width of kernel
+        
         
         # read vertex data
         pos = vertexes['pos']
@@ -356,9 +368,12 @@ class HocReader(object):
         mx = pos.max(axis=0)
         mn = pos.min(axis=0)
         diff = mx - mn
-        shape = tuple((diff / res + kernel_size).astype(int))
+        shape = tuple((diff / resolution + kernel_size).astype(int))
 
         # prepare blank scalar field for drawing
+        size = np.dtype(np.float32).itemsize * shape[0] * shape[1] * shape[2]
+        if size > max_size:
+            raise Exception("Scalar field would be larger than max_size (%dMB > %dMB)" % (size/1e6, max_size/1e6))
         scfield = np.zeros(shape, dtype=np.float32)
         scfield[:] = -1000
         
@@ -369,14 +384,14 @@ class HocReader(object):
         # map vertex locations to voxels
         vox_pos = pos.copy()
         vox_pos -= mn.reshape((1,3))
-        vox_pos *= 1./res
+        vox_pos *= 1./resolution
 
         # Define kernel used to draw scalar field along dendrites
         def cone(i,j,k):
             # value decreases linearly with distance from center of kernel.
             w = kernel_size / 2
             return w - ((i-w)**2 + (j-w)**2 + (k-w)**2)**0.5
-        kernel = res * np.fromfunction(cone, (kernel_size,)*3)
+        kernel = resolution * np.fromfunction(cone, (kernel_size,)*3)
         kernel -= kernel.max()
 
         def array_intersection(arr1, arr2, pos):
@@ -423,8 +438,8 @@ class HocReader(object):
                 
         # return transform relating volume data to original vertex data
         transform = pg.Transform3D()
-        w = res * kernel_size / 2 # offset introduced due to kernel
+        w = resolution * kernel_size / 2 # offset introduced due to kernel
         transform.translate(*(mn-w))
-        transform.scale(res, res, res)
+        transform.scale(resolution, resolution, resolution)
         transform.translate(1, 1, 1)
         return scfield, idfield, transform

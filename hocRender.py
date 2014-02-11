@@ -94,10 +94,15 @@ print 'hoc: ', hoc
 
 section_colors = {
     'axon': 'r', 
-    'hillock': 'g', 
+    'hillock': 'g',
     'soma': 'b',
+    'somatic': 'b',
     'apic': 'y',
+    'apical': 'y',
+    'dend': 'm',
+    'basal': 'm',
     'initseg': 'c',
+    'ais': 'c',
     'heminode': 'g', 
     'stalk':'y', 
     'branch': 'b', 

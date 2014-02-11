@@ -57,7 +57,7 @@ class HocGraphic(object):
         """
         raise NotImplementedError()
     
-    def set_group_colors(self, colors, default_color=(0,0,0,0), alpha=None, mechanism=None):
+    def set_group_colors(self, colors, default_color=(0.5,0.5,0.5,0.5), alpha=None, mechanism=None):
         """
         Color the sections in the reconstruction according to their
         group name.
@@ -93,47 +93,6 @@ class HocGraphic(object):
         if mechanism is not None and mechmax > 0:
             sec_colors[:,3] = 0.05 + 0.95*sec_colors[:,3]/mechmax # set alpha for all sections
         self.set_section_colors(sec_colors)
-
-
-#     def paint_sections_by_density(self, sectionColors, mechanism, excludeSections = []):
-#         """
-#         Color the sections in the reconstruction by the density of the selected mechanism
-#         in the section
-#         Inputs: sectionColors, a dictionary of section names and desired colors
-#                 mechanism :should be from modelPars.mechnames['mech'], and is a list with
-#                     the mech name [0], and the conductance density variable name [1] -
-#                     for example: ['na', 'gnabar']
-#                 excludeSections: a list of sections that should not be painted.
-#         """
-#
-#         color = np.zeros((len(self.h.sections), 4), dtype=float)
-#         gmax = 0.
-#         for sectionName in self.h.sections:
-#             if sectionName in excludeSections: # everyone is in the synapse and axon, so skip
-#                 continue
-#             g = self.h.get_density(self.h.sections[sectionName], mechanism)
-#             for secno in self.Sections[stype]: # check out sections of a given type
-# ###
-# ### This routine directly references axon, and it should actually reference
-# ### the section as indicated in the sections list (which SHOULD be the same).
-# ### however, this will break the generality of function, as it requires that the primary
-# ### list of sections be called "axon"
-# ###
-#                 ml = self.get_mechanisms(eval('self.h.axon[%d]' % (secno))) # this is too specific
-#                 if mechanism[0] in ml:
-#                     gsec = self.get_density(eval('self.h.axon[%d]' % (secno)), mechanism)
-#                 else:
-#                     gsec = 0.
-#                 if gsec > gmax:
-#                     gmax = gsec
-#                 color[secno, :] = Colors[sectionColors[stype]] # map colors
-#                 color[secno, 3] = gsec # use alpha, but rescale next
-#         if gmax > 0:
-#             color[:,3] = 0.05 + 0.95*color[:,3]/gmax # set alpha for all sections
-#         else:
-#             color[:,3] = 0.05
-#         self.set_section_colors(color)
-#         #self.w.setWindowTitle('hocRender: %s' % (mechanism[0]))
 
 
 class HocVolume(gl.GLVolumeItem, HocGraphic):
@@ -273,8 +232,9 @@ class HocCylinders(gl.GLMeshItem, HocGraphic):
             axis = pg.QtGui.QVector3D.crossProduct(r, p2-p1)
             ang = r.angle(p2-p1)
             tr = pg.Transform3D()
-            tr.translate(ends[0][0], ends[0][1], ends[0][2]+length/2.0) # move into position
+            tr.translate(ends[0][0], ends[0][1], ends[0][2]) # move into position
             tr.rotate(ang, axis.x(), axis.y(), axis.z())
+            tr.translate(0, 0, length/2.0) # move into position
             
             mesh_verts = pg.transformCoordinates(tr, mesh_verts, transpose=True)
             
