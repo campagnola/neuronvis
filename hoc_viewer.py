@@ -12,16 +12,16 @@ class HocViewer(gl.GLViewWidget):
     Input:
         h: HocReader instance or "xxxx.hoc" file name
     """
-    def __init__(self, h):
-        if isinstance(h, basestring):
-            h = HocReader(h)
-        self.h = h
+    def __init__(self, hoc):
+        if not isinstance(hoc, HocReader):
+            hoc = HocReader(hoc)
+        self.hr = hoc
         pg.mkQApp()  # make sure there is a QApplication before instantiating any QWidgets.
         super(HocViewer, self).__init__()
         self.resize(720,720)
         self.show()
         self.setWindowTitle('hocRender')
-        self.setCameraPosition(distance=300.)
+        self.setCameraPosition(distance=200., elevation=45., azimuth=45.)
 
         self.g = gl.GLGridItem()
         self.g.scale(2,2,1)
@@ -36,7 +36,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocVolume instance
         """
-        g = HocVolume(self.h)
+        g = HocVolume(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g
@@ -47,7 +47,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocSurface instance
         """
-        g = HocSurface(self.h)
+        g = HocSurface(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g
@@ -58,7 +58,7 @@ class HocViewer(gl.GLViewWidget):
         
         Returns:  HocGraph instance
         """
-        g = HocGraph(self.h)
+        g = HocGraph(self.hr)
         self.graphics.append(g)
         self.addItem(g)
         return g
@@ -81,13 +81,18 @@ class HocViewer(gl.GLViewWidget):
         If no file name is given, then the frame is added on to the currently-
         accumulating video stack.
         """
+        print 'saveframe, filename: ', file_name
         if file_name is None:
             if self.video_file is None:
                 raise Exception("No file name specified and no video storage in progress.")
             img = pg.imageToArray(self.readQImage())
+            print 'writing img: ', img.shape
             self.video_file.write(img)
+            print 'did write'
         else:
             self.readQImage().save(file_name)
+        print 'save frame to file: ', file_name
+
     
     def begin_video(self, file_name, fps=25):
         """
@@ -103,11 +108,13 @@ class HocViewer(gl.GLViewWidget):
                              fps=fps, 
                              frameSize=winsize,
                              isColor=False)
+        print 'opened video file: ', file_name
         
     def save_video(self):
         """
         Finish storing the video created since the last call to begin_video()
         """
+        print 'finished video file'
         self.video_file.release()
         self.video_file = None
         

@@ -10,8 +10,8 @@ Colors = { # colormap
     'green': np.array([0,255,0,255])/255.,
     'r': np.array([255,0,0,255])/255.,
     'red': np.array([255,0,0,255])/255.,
-    'cyan': np.array([0,255,255,255])/255.,
     'c': np.array([0,255,255,255])/255.,
+    'cyan': np.array([0,255,255,255])/255.,
     'm': np.array([255,0,255,255])/255.,
     'magenta': np.array([255,0,255,255])/255.,
     'y': np.array([255,255,0,255])/255.,
@@ -31,6 +31,8 @@ Colors = { # colormap
     'pink': np.array([255,190,206,255])/255.,
 }
 
+colorMap = ['b', 'g', 'r', 'c', 'y', 'm' 'powderblue', 'brown', 'orange', 'pink']
+
 
 
 
@@ -40,7 +42,9 @@ class HocGraphic(object):
     HocSurface, etc.)
     
     """
-    
+    def __init__(self, h):
+        self.h = h
+
     def set_section_colors(self, colors):
         """
         Recolor the graphic by section using the *colors* array. This method
@@ -50,7 +54,7 @@ class HocGraphic(object):
         """
         raise NotImplementedError()
     
-    def set_group_colors(self, colors, default_color=(0,0,0,0), alpha=None):
+    def set_group_colors(self, colors, default_color=(0,0,0,0), alpha=None, mechanism=None):
         """
         Color the sections in the reconstruction according to their
         group name.
@@ -63,55 +67,63 @@ class HocGraphic(object):
         """
         sec_colors = np.zeros((len(self.h.sections), 4), dtype=float)
         sec_colors[:] = default_color
-        
+        mechmax = 0.
         for group_name, color in colors.items():
             for sec_name in self.h.get_section_group(group_name):
                 if isinstance(color, basestring):
                     color = Colors[color]
                 index = self.h.sec_index[sec_name]
                 sec_colors[index] = color
-                if alpha is not None:
+                if mechanism is not None:
+                    g = self.h.get_density(self.h.sections[sec_name], mechanism)
+                    mechmax  = max(mechmax, g)
+                    sec_colors[index,3] = g
+                elif alpha is not None:
                     sec_colors[index, 3] = alpha
+        if mechanism is not None and mechmax > 0:
+            sec_colors[:,3] = 0.05 + 0.95*sec_colors[:,3]/mechmax # set alpha for all sections
         self.set_section_colors(sec_colors)
 
-    def paint_sections_by_density(self, sectionColors, mechanism, excludeSections = []):
-        """
-        Color the sections in the reconstruction by the density of the selected mechanism
-        in the section
-        Inputs: sectionColors, a dictionary of section names and desired colors
-                mechanism :should be from modelPars.mechnames['mech'], and is a list with
-                    the mech name [0], and the conductance density variable name [1] -
-                    for example: ['na', 'gnabar']
-                excludeSections: a list of sections that should not be painted.
-        """
 
-        color = np.zeros((self.nsec, 4), dtype=float)
-        gmax = 0.
-        for stype in self.Sections:
-            if stype in excludeSections: # everyone is in the synapse and axon, so skip
-                continue
-            for secno in self.Sections[stype]: # check out sections of a given type
-###
-### This routine directly references axon, and it should actually reference
-### the section as indicated in the sections list (which SHOULD be the same).
-### however, this will break the generality of function, as it requires that the primary
-### list of sections be called "axon"
-###
-                ml = self.get_mechanisms(eval('h.axon[%d]' % (secno))) # this is too specific
-                if mechanism[0] in ml:
-                    gsec = self.get_density(eval('h.axon[%d]' % (secno)), mechanism)
-                else:
-                    gsec = 0.
-                if gsec > gmax:
-                    gmax = gsec
-                color[secno, :] = Colors[sectionColors[stype]] # map colors
-                color[secno, 3] = gsec # use alpha, but rescale next
-        if gmax > 0:
-            color[:,3] = 0.05 + 0.95*color[:,3]/gmax # set alpha for all sections
-        else:
-            color[:,3] = 0.05
-        self.set_section_colors(color)
-        #self.w.setWindowTitle('hocRender: %s' % (mechanism[0]))
+#     def paint_sections_by_density(self, sectionColors, mechanism, excludeSections = []):
+#         """
+#         Color the sections in the reconstruction by the density of the selected mechanism
+#         in the section
+#         Inputs: sectionColors, a dictionary of section names and desired colors
+#                 mechanism :should be from modelPars.mechnames['mech'], and is a list with
+#                     the mech name [0], and the conductance density variable name [1] -
+#                     for example: ['na', 'gnabar']
+#                 excludeSections: a list of sections that should not be painted.
+#         """
+#
+#         color = np.zeros((len(self.h.sections), 4), dtype=float)
+#         gmax = 0.
+#         for sectionName in self.h.sections:
+#             if sectionName in excludeSections: # everyone is in the synapse and axon, so skip
+#                 continue
+#             g = self.h.get_density(self.h.sections[sectionName], mechanism)
+#             for secno in self.Sections[stype]: # check out sections of a given type
+# ###
+# ### This routine directly references axon, and it should actually reference
+# ### the section as indicated in the sections list (which SHOULD be the same).
+# ### however, this will break the generality of function, as it requires that the primary
+# ### list of sections be called "axon"
+# ###
+#                 ml = self.get_mechanisms(eval('self.h.axon[%d]' % (secno))) # this is too specific
+#                 if mechanism[0] in ml:
+#                     gsec = self.get_density(eval('self.h.axon[%d]' % (secno)), mechanism)
+#                 else:
+#                     gsec = 0.
+#                 if gsec > gmax:
+#                     gmax = gsec
+#                 color[secno, :] = Colors[sectionColors[stype]] # map colors
+#                 color[secno, 3] = gsec # use alpha, but rescale next
+#         if gmax > 0:
+#             color[:,3] = 0.05 + 0.95*color[:,3]/gmax # set alpha for all sections
+#         else:
+#             color[:,3] = 0.05
+#         self.set_section_colors(color)
+#         #self.w.setWindowTitle('hocRender: %s' % (mechanism[0]))
 
 
 class HocVolume(gl.GLVolumeItem, HocGraphic):

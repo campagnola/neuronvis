@@ -46,7 +46,7 @@ class SimulationResult(object):
         return os.path.join(path, self.hoc_file)
         
     
-    def save(self, file_name):
+    def save(self, file_name, hoc_file=None, data=None, time=None, section_map=None):
         """
         Save simulation results to file. 
         This instance must have the following attributes in order to save:
@@ -57,12 +57,20 @@ class SimulationResult(object):
             hoc_file: the hoc file that defines the geometry of the simulation
             section_map: list of section names in the same order that sections 
                          appear in the data arrays.
+            Note: if hoc_file is none, then we use the existing values; otherwise we expect
+            all arrays to be passed.
         """
         self.file_name = file_name
         
+        if hoc_file is not None:
+            self.hoc_file = hoc_file
+            self.data = data
+            self.time = time
+            self.section_map = section_map
+
         path = os.path.dirname(self.file_name)
         hoc = os.path.relpath(self.hoc_file, path)
-        
+
         fh = open(file_name, 'wb')
         pickle.dump({
             'hoc_file': self.hoc_file,

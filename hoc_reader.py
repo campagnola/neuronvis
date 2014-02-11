@@ -1,8 +1,12 @@
+from neuron import h
 import neuron
 import collections
 import numpy as np
 import pyqtgraph as pg
+import os
+import re
 
+import os.path
 class HocReader(object):
     """
     Provides useful methods for reading hoc structures.
@@ -11,10 +15,19 @@ class HocReader(object):
         hoc: a hoc object or a "xxx.hoc" file name.
     """
     def __init__(self, hoc):
+        self.file_loaded = False
         if isinstance(hoc, basestring):
-            neuron.h.load_file(1, hoc)
-            
-        self.h = neuron.h
+            fullfile = os.path.join(os.getcwd(), hoc)
+            if not os.path.isfile(fullfile):
+                print "File not found: %s" % (fullfile)
+                return
+            success = neuron.h.load_file(1, fullfile)
+            if success == 0: # indicates failure to read the file
+                raise NameError("Found file, but NEURON load failed: %s" % (fullfile))
+            self.h = h # save a copy of the hoc object itself.
+        else:
+            self.h = hoc # just use the passed argument
+            self.file_loaded = True
 
         # geometry containers
         self.edges = None
@@ -42,6 +55,24 @@ class HocReader(object):
         except KeyError:
             raise KeyError("No section named '%s'" % sec_name)
 
+
+    def get_sections(self):
+        """
+        go through all the sections and find the names of the sections and all of their
+        parts (ids). Returns a dict, of sec: [id0, id1...]
+
+        """
+        secnames = {}
+        resec = re.compile('(\w+)\[(\d*)\]')
+        for sec in self.h.allsec():
+            g = resec.match(sec.name())
+            if g.group(1) not in secnames.keys():
+                secnames[g.group(1)] = [int(g.group(2))]
+            else:
+                secnames[g.group(1)].append(int(g.group(2)))
+        return secnames
+
+
     def get_mechanisms(self, section):
         """
         Get a set of all of the mechanisms inserted into a given section
@@ -51,7 +82,7 @@ class HocReader(object):
         """
         return self.mechanisms[section]
 
-    def get_density(self, section, mechanism, variable):
+    def get_density(self, section, mechanism):
         """
         Get density mechanism that may be found the section.
         mechanism is a list ['name', 'gbarname']. This is needed because
@@ -70,14 +101,18 @@ class HocReader(object):
         gmech = []
         for seg in section:
             try:
-                x =  eval('seg.%s' % mechanism)
-                mecbar = '%s_%s' % (variable, mechanism)
+                x =  getattr(seg,  mechanism[0])
+                mecbar = '%s_%s' % (mechanism[1], mechanism[0])
                 if mecbar in dir(x):
-                    gmech.append(eval('x.%s' % variable))
+                    gmech.append(getattr(x, mechanism[1]))
                 else:
-                    print 'hocRender:get_density did not find the mechanism in dir x'
+                    print 'hoc_reader:get_density did not find the mechanism in dir x'
+            except NameError:
+                return(0.)
             except:
-                print 'hocRender:get_density failed to evaluate the mechanisms... '
+                print 'hoc_reader:get_density failed to evaluate the mechanisms... '
+                raise
+
 
 #        print gmech
         if len(gmech) == 0:
@@ -167,10 +202,11 @@ class HocReader(object):
             var = getattr(self.h, hoc_name)
             self.add_section_group(group_name, list(var))
 
+
     def get_geometry(self):
         """
         modified from:neuronvisio
-        Generate structures that describe the geometry of the sections.
+        Generate structures that describe the geometry of the sections and their segments (all segments are returned)
         Inputs: None
         Outputs: vertexes: record array containing {pos: (x,y,z), dia, sec_id}
                            for each segment.
