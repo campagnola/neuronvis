@@ -340,7 +340,7 @@ class HocReader(object):
         return (np.array(x),np.array(y),np.array(z),np.array(d))
 
 
-    def make_volume_data(self, resolution=0.4, max_size=100e6):
+    def make_volume_data(self, resolution=0.4, max_size=200e6):
         """
         Using the current state of vertexes, edges, generates a scalar field
         useful for building isosurface or volumetric renderings.
@@ -356,7 +356,7 @@ class HocReader(object):
         vertexes, lines = self.get_geometry()
         
         maxdia = vertexes['dia'].max() # maximum diameter (defines shape of kernel)
-        kernel_size = int(maxdia/resolution) + 1 # width of kernel
+        kernel_size = int(maxdia/resolution) + 3 # width of kernel
         
         
         # read vertex data

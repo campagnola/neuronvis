@@ -228,13 +228,12 @@ class HocCylinders(gl.GLMeshItem, HocGraphic):
             # Rotate cylinder vertexes to match segment
             p1 = pg.Vector(*ends[0])
             p2 = pg.Vector(*ends[1])
-            r = pg.Vector(0,0,1)
-            axis = pg.QtGui.QVector3D.crossProduct(r, p2-p1)
-            ang = r.angle(p2-p1)
+            z = pg.Vector(0,0,1)
+            axis = pg.QtGui.QVector3D.crossProduct(z, p2-p1)
+            ang = z.angle(p2-p1)
             tr = pg.Transform3D()
             tr.translate(ends[0][0], ends[0][1], ends[0][2]) # move into position
             tr.rotate(ang, axis.x(), axis.y(), axis.z())
-            tr.translate(0, 0, length/2.0) # move into position
             
             mesh_verts = pg.transformCoordinates(tr, mesh_verts, transpose=True)
             
