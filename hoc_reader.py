@@ -43,6 +43,9 @@ class HocReader(object):
         # {sec_group_name: set(sec_name, ...)}
         self.sec_groups = {} 
         
+        # topology  {section: (parent, [children,...])}
+        self.topology = {}
+        
         # populate self.sections, self.sec_index, and self.mechanisms
         self._read_section_info()
         
@@ -61,6 +64,8 @@ class HocReader(object):
             for group, sections in sec_prefixes.items():
                 self.add_section_group(group, sections)
 
+        # generate topology
+        self._generate_topology()
 
     def get_section(self, sec_name):
         """
@@ -341,6 +346,43 @@ class HocReader(object):
         self.h.pop_section()
         return (np.array(x),np.array(y),np.array(z),np.array(d))
 
+    def _generate_topology(self):
+        for name, sec in self.sections.items():
+            sref = self.h.SectionRef(sec=sec)
+            parent = sref.parent().sec.name() if sref.has_parent() else None
+            if name not in self.topology:
+                self.topology[name] = [None, []]
+            self.topology[name][0] = parent
+            if parent is not None:
+                if parent not in self.topology:
+                    self.topology[parent] = [None, []]
+                self.topology[parent][1].append(name)
+            
+    def get_branch(self, root):
+        """
+        Return all sections in a branch, starting with root.        
+        """
+        branch = [root]
+        childs = [root]
+        while len(childs) > 0:
+            new_childs = []
+            for ch in childs:
+                new_childs.extend(self.topology[ch][1])
+            childs = new_childs
+            branch.extend(childs)
+        return branch
+
+    def translate_branch(self, root, dx):
+        """
+        Move the branch beginning at *root* by *dx*, which must be an array of
+        length 3.
+        """
+        self.get_geometry()
+        dx[np.newaxis, :]
+        for name in self.get_branch(root):
+            sid = self.sec_index[name]
+            mask = self.vertexes['sec_index'] == sid
+            self.vertexes['pos'][mask] += dx
 
     def make_volume_data(self, resolution=0.4, max_size=200e6):
         """
