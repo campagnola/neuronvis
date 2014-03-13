@@ -35,6 +35,7 @@ commands = {
     'vm': "Animation of per-section membrane voltage over time.",
     'graph': "Simple wireframe rendering.",
     'cylinders': "Simple cylinder rendering.",
+    'mntb-dend-fix': "Correct dendrite positions for MNTB_Cell2",
     }
 
 # Handle command line arguments.
@@ -134,6 +135,14 @@ elif command == 'graph':
     g = view.draw_graph()
     g.set_group_colors(section_colors)
 elif command == 'cylinders':
+    g = view.draw_cylinders()
+    g.set_group_colors(section_colors)
+elif command == 'mntb-dend-fix':
+    hoc.translate_branch('dend[0]', np.array([5, 0, -15]))
+    hoc.translate_branch('dend[1]', np.array([-6, 0, -7]))
+    hoc.translate_branch('dend[2]', np.array([-5, 0, -15]))
+    hoc.translate_branch('dend[3]', np.array([2, 0, 0]))
+    view.g.hide()
     g = view.draw_cylinders()
     g.set_group_colors(section_colors)
 elif command == 'vm':
