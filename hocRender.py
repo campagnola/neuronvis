@@ -30,7 +30,8 @@ import numpy as np
 
 # define all commands here.
 commands = {
-    'sec-type': "Sections colored by type",
+    'sec-type': "Isosurface rendering with sections colored by type.",
+    'group-info': "Print information about section groups and their mechanisms.",
     'vm': "Animation of per-section membrane voltage over time.",
     'graph': "Simple wireframe rendering.",
     'cylinders': "Simple cylinder rendering.",
@@ -112,13 +113,23 @@ section_colors = {
     'parentaxon': 'orange', 
     'synapse': 'k'}
 
-print("Section groups:")
-print(view.hr.sec_groups.keys())
 
 if command == 'sec-type':
     # Color sections by type.
     surf = view.draw_surface()
     surf.set_group_colors(section_colors, alpha=0.35)
+elif command == 'group-info':
+    # Print information about section groups and mechanisms
+    print("\nSection groups:")
+    print(hoc.sec_groups.keys())
+    
+    print("\nMechanisms:")
+    for group,sections in view.hr.sec_groups.items():
+        mechs = set()
+        for sec in sections:
+            mechs |= hoc.get_mechanisms(sec)
+        print("  %s: %s" % (group, list(mechs)))
+    
 elif command == 'graph':
     g = view.draw_graph()
     g.set_group_colors(section_colors)
@@ -132,11 +143,11 @@ elif command == 'vm':
         raise Exception('Cannot render Vm: no simulation output specified.')
 
     surf = view.draw_surface()
-    start = 375
+    start = 400
     stop = 550
     index = start
     loopCount = 0
-    nloop = 1
+    nloop = 0
 
 
     def vm_to_color(v):
@@ -157,8 +168,8 @@ elif command == 'vm':
         """
         Set the currently-displayed time index.
         """
-        #v = sim_data.data['Vm'][:,index]
-        v = sim_data.data[:,index]
+        v = sim_data.data['Vm'][:,index]
+        #v = sim_data.data[:,index]
         color = vm_to_color(v)
         
         # note that we assume sections are ordered the same in the HocReader 
@@ -175,7 +186,7 @@ elif command == 'vm':
         index += 1
         if index >= stop:
             loopCount += 1
-            if loopCount >= nloop:
+            if nloop > 0 and loopCount >= nloop:
                 timer.stop()
             index = start
 
@@ -201,7 +212,7 @@ elif command == 'vm':
     timer = pg.QtCore.QTimer()
     timer.timeout.connect(update)
     timer.start(10.)
-    record(os.path.join(os.getcwd(), 'video.avi'))
+    #record(os.path.join(os.getcwd(), 'video.avi'))
 
 
 if sys.flags.interactive == 0:

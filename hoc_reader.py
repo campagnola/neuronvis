@@ -43,7 +43,7 @@ class HocReader(object):
         # {sec_group_name: set(sec_name, ...)}
         self.sec_groups = {} 
         
-        # populate self.sections and self.mechanisms
+        # populate self.sections, self.sec_index, and self.mechanisms
         self._read_section_info()
         
         # auto-generate section groups based on either hoc section lists, or
@@ -112,7 +112,9 @@ class HocReader(object):
         returns the average of the conductance density, as that may range across different
         values in a section (e.g., can vary by segments)
         Input: section (hoc object)
-                mechanism mechanism is a list ['name', 'gbarname'].
+                mechanism mechanism is a list ['name', 'gbarname']. It is used to 
+                retrieve the mechanism density from HOC as 
+                `segment.name.gbarname`.
         Output:
             mean conductance inserted into the section across segments
         Side-effects:
@@ -176,7 +178,7 @@ class HocReader(object):
             for seg in sec:
                 for mech in seg:
                     mechs.add(mech.name())
-            self.mechanisms[sec.name] = mechs
+            self.mechanisms[sec.name()] = mechs
 
     def hoc_namespace(self):
         """
@@ -414,6 +416,7 @@ class HocReader(object):
             slice2 = (slice(s1[0],s2[0]), slice(s1[1],s2[1]), slice(s1[2],s2[2]))
             return slice1, slice2            
 
+        # Draw lines into volume using *kernel* as the brush
         vox_pos[:,0] = np.clip(vox_pos[:,0], 0, scfield.shape[0]-1)
         vox_pos[:,1] = np.clip(vox_pos[:,1], 0, scfield.shape[1]-1)
         vox_pos[:,2] = np.clip(vox_pos[:,2], 0, scfield.shape[2]-1)
@@ -431,8 +434,6 @@ class HocReader(object):
                 sl1, sl2 = array_intersection(scfield, kern, p1) # find the overlapping area between the field and the kernel
                 idfield[sl1] = np.where(scfield[sl1] > kern[sl2], idfield[sl1], sec_id[i])
                 scfield[sl1] = np.where(scfield[sl1] > kern[sl2], scfield[sl1], kern[sl2])
-                #stamp_array(scfield, kern, p1)
-                #stamp_array(idfield, kern, p1)
                 dia += (d[j]-d[i]) / nvoxels
                 p1 += diff / nvoxels
                 
