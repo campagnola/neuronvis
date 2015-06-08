@@ -3,9 +3,42 @@ import numpy as np
 
 
 class SWC(object):
-    def __init__(self, filename=None, data=None):
+    """Encapsulates a morphology tree as defined by the SWC standard.
+    
+    Parameters
+    ----------
+    filename : str or None
+        The name of an swc file to load
+    types : dict or None
+        A dictionary mapping {type_id: type_name} that describes the type IDs
+        in the swc data (second column).
+    data : ndarray or None
+        Optionally, a data array may be provided instead of an swc file. This
+        is used internally.
+    """
+    def __init__(self, filename=None, types=None, data=None):
+        self._dtype = [
+            ('id', int), 
+            ('type', int), 
+            ('x', float), 
+            ('y', float), 
+            ('z', float), 
+            ('r', float), 
+            ('parent', int)
+        ]
+        
         self._id_lookup = None
         self._sections = None
+
+        self.sectypes = {
+            0: 'undefined',
+            1: 'soma',
+            2: 'axon',
+            3: 'basal_dendrite',
+            4: 'apical_dendrite',
+        }
+        if types is not None:
+            self.sectypes.update(types)
         
         if data is not None:
             self.data = data
@@ -19,15 +52,7 @@ class SWC(object):
     
     def load(self, filename):
         self.filename = filename
-        self.data = np.loadtxt(filename, dtype=[
-            ('id', int), 
-            ('type', int), 
-            ('x', float), 
-            ('y', float), 
-            ('z', float), 
-            ('r', float), 
-            ('parent', int)
-        ])
+        self.data = np.loadtxt(filename, dtype=self._dtype)
         
     def copy(self):
         return SWC(self.data.copy())
@@ -83,7 +108,6 @@ class SWC(object):
                     sec = []
             
             self._sections = sections
-            self._branchpts = branchpts
             
         return self._sections
         
@@ -91,6 +115,18 @@ class SWC(object):
         """Combine this tree with another by attaching the root of *swc* as a 
         child of *parent_id*.
         """
+        data = swc.data.copy()
+        shift = self.data['id'].max() + 1 - data['id'].min()
+        data['id'] += shift
+        rootmask = data['parent'] == -1
+        data['parent'] += shift
+        data['parent'][rootmask] = parent_id
+        
+        self.data = np.concatenate([self.data, data])
+        self.sort()
+        
+    def set_type(self, typ):
+        self.data['type'] = typ
         
     def write_hoc(self, filename, types=None):
         """Write data to a HOC file.
@@ -99,16 +135,7 @@ class SWC(object):
         """
         hoc = []
         
-        sectypes = {
-            0: 'undefined',
-            1: 'soma',
-            2: 'axon',
-            3: 'basal_dendrite',
-            4: 'apical_dendrite',
-        }
-        if types is not None:
-            sectypes.update(types)
-        
+        sectypes = self.sectypes.copy()
         for t in np.unique(self.data['type']):
             if t not in sectypes:
                 sectypes[t] = 'type_%d' % t
@@ -143,20 +170,35 @@ class SWC(object):
             hoc.append('sections[%d] {' % sec_id)
             for seg in sec:
                 rec = self[seg]
-                hoc.append('pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']*2))
+                hoc.append('  pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']*2))
             hoc.append('}')
+            
+            hoc.append('')
         
         open(filename, 'w').write('\n'.join(hoc))
 
     def sort(self):
         """Sort the tree in topological order.
         """
+        recs = list(self.data)
+        recs.sort(cmp=lambda a, b: 1 if b['id'] in self.path(a['id']) else -1)
+        self.data = np.array(recs, dtype=self._dtype)
+        
+        self._id_lookup = None
+        self._sections = None
+        
+    def path(self, node):
+        path = [node]
+        while True:
+            node = self[node]['parent']
+            if node < 0:
+                return path
+            path.append(node)
         
     def branch(self, id):
         """Return the branch beginning at *id*.
         """
-        
-
+    
     def topology(self):
         """Print the tree topology.
         """
@@ -180,19 +222,25 @@ class SWC(object):
                 this_indent = indent[:-2] + u"└─ "
                 indent =      indent[:-2] + u"   │  "
                 
+                
+            typ = self.sectypes[self[sec[0]]['type']]
             if len(sec) > 10:
-                print "%s%d %s,...%s" % (this_indent, p, str(tuple(sec[:3]))[:-1], str(tuple(sec[-3:]))[1:])
+                secstr = "%s,...%s" % (str(tuple(sec[:3]))[:-1], str(tuple(sec[-3:]))[1:])
             else:
-                print "%s%d %s" % (this_indent, p, str(tuple(sec)))
+                secstr = str(tuple(sec))
+            print "%ssections[%d] type=%s parent=%d %s" % (this_indent, i, typ, p, secstr)
 
 
 if __name__ == '__main__':
-    import os, sys
-    path = os.path.join(os.path.dirname(__file__), 'data')
-    swcf = os.path.join(path, 'dendnonscaled.swc')
-    hocf = os.path.join(path, 'dendnonscaled.hoc')
+    soma = SWC('data/cellbody.swc', types={1:'soma', 2:'axon', 3:'dendrite'})
+    soma.set_type(1)
+    axon = SWC('data/axonnonscaled.swc')
+    axon.set_type(2)
+    dend = SWC('data/dendnonscaled.swc')
+    dend.set_type(3)
     
-    swc = SWC(filename=swcf)
-    swc.topology()
+    soma.connect(10, dend)
+    soma.connect(20, axon)
     
-    swc.write_hoc('test.hoc')
+    soma.write_hoc('test.hoc')
+    soma.topology()
