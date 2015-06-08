@@ -1,0 +1,198 @@
+# -*- coding: utf8 -*-
+import numpy as np
+
+
+class SWC(object):
+    def __init__(self, filename=None, data=None):
+        self._id_lookup = None
+        self._sections = None
+        
+        if data is not None:
+            self.data = data
+        elif filename is not None:
+            self.load(filename)
+        else:
+            raise TypeError("Must initialize with filename or data array.")
+        
+        if np.any(self.data['parent'] >= self.data['id']):
+            raise TypeError("SWC data is not sorted in topological order.")
+    
+    def load(self, filename):
+        self.filename = filename
+        self.data = np.loadtxt(filename, dtype=[
+            ('id', int), 
+            ('type', int), 
+            ('x', float), 
+            ('y', float), 
+            ('z', float), 
+            ('r', float), 
+            ('parent', int)
+        ])
+        
+    def copy(self):
+        return SWC(self.data.copy())
+
+    @property
+    def lookup(self):
+        """Return a dict that maps *id* to *index* in the data array.
+        """
+        if self._id_lookup is None:
+            self._id_lookup = {}
+            for i, rec in enumerate(self.data):
+                self._id_lookup[rec['id']] = i
+        return self._id_lookup
+
+    def __getitem__(self, id):
+        """Return record for node *id*.
+        """
+        return self.data[self.lookup[id]]
+
+    def reparent(self, id):
+        """Rearrange tree to make *id* the new root parent.
+        """
+        
+    @property
+    def sections(self):
+        """Return lists of IDs grouped by topological section.
+        
+        The first item in each list connects to the last item in a previous
+        list.
+        """
+        if self._sections is None:
+            sections = []
+            sec = []
+            
+            # find all nodes with nore than 1 child
+            branchpts = set()
+            endpoints = set(self.data['id'])
+            endpoints.add(-1)
+            seen = set()
+            for r in self.data:
+                p = r['parent']
+                if p in seen:
+                    branchpts.add(p)
+                else:
+                    seen.add(p)
+                    endpoints.remove(p)
+            
+            # build lists of unbranched node chains
+            for r in self.data:
+                sec.append(r['id'])
+                if r['id'] in branchpts or r['id'] in endpoints:
+                    sections.append(sec)
+                    sec = []
+            
+            self._sections = sections
+            self._branchpts = branchpts
+            
+        return self._sections
+        
+    def connect(self, parent_id, swc):
+        """Combine this tree with another by attaching the root of *swc* as a 
+        child of *parent_id*.
+        """
+        
+    def write_hoc(self, filename, types=None):
+        """Write data to a HOC file.
+        
+        Each node type is written to a separate section list.
+        """
+        hoc = []
+        
+        sectypes = {
+            0: 'undefined',
+            1: 'soma',
+            2: 'axon',
+            3: 'basal_dendrite',
+            4: 'apical_dendrite',
+        }
+        if types is not None:
+            sectypes.update(types)
+        
+        for t in np.unique(self.data['type']):
+            if t not in sectypes:
+                sectypes[t] = 'type_%d' % t
+
+        # create section lists
+        for t in sectypes.values():
+            hoc.extend(['objref %s' % t,
+                        '%s = new SectionList()' % t])
+        hoc.append('')
+            
+        # create sections
+        sects = self.sections
+        hoc.append('create sections[%d]' % len(sects))
+        sec_ids = {}
+        for i, sec in enumerate(sects):
+            # remember hoc index for this section
+            endpt = self[sec[-1]]['id']
+            sec_id = len(sec_ids)
+            sec_ids[endpt] = sec_id
+            
+            # add section to list
+            hoc.append('access sections[%d]' % sec_id)
+            typ = self[sec[0]]['type']
+            hoc.append('%s.append()' % sectypes[typ])
+            
+            # connect section to parent
+            p = self[sec[0]]['parent']
+            if p != -1:
+                hoc.append('connect sections[%d](0), sections[%d](1)' % (sec_id, sec_ids[p]))
+
+            # set up geometry for this section
+            hoc.append('sections[%d] {' % sec_id)
+            for seg in sec:
+                rec = self[seg]
+                hoc.append('pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']*2))
+            hoc.append('}')
+        
+        open(filename, 'w').write('\n'.join(hoc))
+
+    def sort(self):
+        """Sort the tree in topological order.
+        """
+        
+    def branch(self, id):
+        """Return the branch beginning at *id*.
+        """
+        
+
+    def topology(self):
+        """Print the tree topology.
+        """
+        path = []
+        indent = ''
+        secparents = [self[s[0]]['parent'] for s in self.sections]
+        
+        for i, sec in enumerate(self.sections):
+            p = secparents[i]
+            if p != -1:
+                ind = path.index(p)
+                path = path[:ind+1]
+                indent = indent[:(ind+1) * 3]
+            path.append(self[sec[-1]]['id'])
+
+            # look ahead to see whether subsequent sections are children
+            if p in secparents[i+1:]:
+                this_indent = indent[:-2] + u"├─ "
+                indent =      indent[:-2] + u"│  │  "
+            else:
+                this_indent = indent[:-2] + u"└─ "
+                indent =      indent[:-2] + u"   │  "
+                
+            if len(sec) > 10:
+                print "%s%d %s,...%s" % (this_indent, p, str(tuple(sec[:3]))[:-1], str(tuple(sec[-3:]))[1:])
+            else:
+                print "%s%d %s" % (this_indent, p, str(tuple(sec)))
+
+
+if __name__ == '__main__':
+    import os, sys
+    path = os.path.join(os.path.dirname(__file__), 'data')
+    swcf = os.path.join(path, 'dendnonscaled.swc')
+    hocf = os.path.join(path, 'dendnonscaled.hoc')
+    
+    swc = SWC(filename=swcf)
+    swc.topology()
+    
+    swc.write_hoc('test.hoc')
