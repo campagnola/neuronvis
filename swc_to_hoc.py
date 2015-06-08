@@ -170,7 +170,7 @@ class SWC(object):
             hoc.append('sections[%d] {' % sec_id)
             for seg in sec:
                 rec = self[seg]
-                hoc.append('  pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']*2))
+                hoc.append('  pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']))
             hoc.append('}')
             
             hoc.append('')
@@ -194,6 +194,12 @@ class SWC(object):
             if node < 0:
                 return path
             path.append(node)
+
+    def scale(self, x, y, z, r):
+        self.data['x'] *= x
+        self.data['y'] *= y
+        self.data['z'] *= z
+        self.data['r'] *= r
         
     def branch(self, id):
         """Return the branch beginning at *id*.
@@ -241,6 +247,8 @@ if __name__ == '__main__':
     
     soma.connect(10, dend)
     soma.connect(20, axon)
+    
+    soma.scale(0.11, 0.11, 0.06, 0.11)
     
     soma.write_hoc('test.hoc')
     soma.topology()
