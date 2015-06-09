@@ -245,8 +245,8 @@ if __name__ == '__main__':
     dend = SWC('data/dendnonscaled.swc')
     dend.set_type(3)
     
-    soma.connect(10, dend)
-    soma.connect(20, axon)
+    soma.connect(57, axon)
+    soma.connect(39, dend)
     
     soma.scale(0.11, 0.11, 0.06, 0.11)
     
