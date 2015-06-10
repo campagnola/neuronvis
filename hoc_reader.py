@@ -384,7 +384,7 @@ class HocReader(object):
             mask = self.vertexes['sec_index'] == sid
             self.vertexes['pos'][mask] += dx
 
-    def make_volume_data(self, resolution=0.4, max_size=200e6):
+    def make_volume_data(self, resolution=0.1, max_size=200e6):
         """
         Using the current state of vertexes, edges, generates a scalar field
         useful for building isosurface or volumetric renderings.

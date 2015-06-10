@@ -29,6 +29,7 @@ class SWC(object):
         
         self._id_lookup = None
         self._sections = None
+        self._children = None
 
         self.sectypes = {
             0: 'undefined',
@@ -47,9 +48,8 @@ class SWC(object):
         else:
             raise TypeError("Must initialize with filename or data array.")
         
-        if np.any(self.data['parent'] >= self.data['id']):
-            raise TypeError("SWC data is not sorted in topological order.")
-    
+        self.sort()
+        
     def load(self, filename):
         self.filename = filename
         self.data = np.loadtxt(filename, dtype=self._dtype)
@@ -62,10 +62,21 @@ class SWC(object):
         """Return a dict that maps *id* to *index* in the data array.
         """
         if self._id_lookup is None:
-            self._id_lookup = {}
-            for i, rec in enumerate(self.data):
-                self._id_lookup[rec['id']] = i
+            self._id_lookup = dict([(rec['id'], i) for i, rec in enumerate(self.data)])
+            #self._id_lookup = {}
+            #for i, rec in enumerate(self.data):
+                #self._id_lookup[rec['id']] = i
         return self._id_lookup
+
+    def children(self, id):
+        """Return a list of all children of the node *id*.
+        """
+        if self._children is None:
+            self._children = {}
+            for rec in self.data:
+                ch = self._children.setdefault(rec['parent'], [])
+                ch.append(rec['id'])
+        return self._children.get(id, [])
 
     def __getitem__(self, id):
         """Return record for node *id*.
@@ -75,6 +86,24 @@ class SWC(object):
     def reparent(self, id):
         """Rearrange tree to make *id* the new root parent.
         """
+        d = self.data
+        
+        # bail out if this is already the root
+        if self[id]['parent'] == -1:
+            return
+        
+        # make sure *id* is a leaf node
+        #assert not np.any(d['parent'] == id)
+        
+        parent = -1
+        while id != -1:
+            oldparent = self[id]['parent']
+            self[id]['parent'] = parent
+            parent = id
+            id = oldparent
+            
+        self._children = None
+        self.sort()
         
     @property
     def sections(self):
@@ -123,6 +152,7 @@ class SWC(object):
         data['parent'][rootmask] = parent_id
         
         self.data = np.concatenate([self.data, data])
+        self._children = None
         self.sort()
         
     def set_type(self, typ):
@@ -177,12 +207,20 @@ class SWC(object):
         
         open(filename, 'w').write('\n'.join(hoc))
 
+    @property
+    def root(self):
+        """ID of the root node of the tree.
+        """
+        ind = np.argwhere(self.data['parent'] == -1)[0, 0]
+        return self.data[ind]['id']
+
     def sort(self):
         """Sort the tree in topological order.
         """
-        recs = list(self.data)
-        recs.sort(cmp=lambda a, b: 1 if b['id'] in self.path(a['id']) else -1)
-        self.data = np.array(recs, dtype=self._dtype)
+        order = self.branch(self.root)
+        lt = self.lookup
+        indexes = np.array([lt[i] for i in order], dtype=int)
+        self.data = self.data[indexes]
         
         self._id_lookup = None
         self._sections = None
@@ -201,9 +239,18 @@ class SWC(object):
         self.data['z'] *= z
         self.data['r'] *= r
         
+    def translate(self, x, y, z):
+        self.data['x'] -= x
+        self.data['y'] -= y
+        self.data['z'] -= z
+        
     def branch(self, id):
-        """Return the branch beginning at *id*.
+        """Return a list of IDs in the branch beginning at *id*.
         """
+        branch = [id]
+        for ch in self.children(id):
+            branch.extend(self.branch(ch))
+        return branch
     
     def topology(self):
         """Print the tree topology.
@@ -244,11 +291,22 @@ if __name__ == '__main__':
     axon.set_type(2)
     dend = SWC('data/dendnonscaled.swc')
     dend.set_type(3)
+    dend.reparent(748)
     
     soma.connect(57, axon)
     soma.connect(39, dend)
-    
     soma.scale(0.11, 0.11, 0.06, 0.11)
-    
+    soma.translate(-45, -60, -60)
     soma.write_hoc('test.hoc')
-    soma.topology()
+    #soma.topology()
+    
+    #dend.data[748]['type'] = 2
+    #dend.scale(0.11, 0.11, 0.06, 0.11)
+    #dend.data['x'] -= 45
+    #dend.data['y'] -= 60
+    #dend.data['z'] -= 60
+    #dend.write_hoc('test.hoc')
+    
+
+    #s = SWC('data/test.swc')
+    #s.topology()
