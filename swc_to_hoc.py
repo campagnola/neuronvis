@@ -92,9 +92,6 @@ class SWC(object):
         if self[id]['parent'] == -1:
             return
         
-        # make sure *id* is a leaf node
-        #assert not np.any(d['parent'] == id)
-        
         parent = -1
         while id != -1:
             oldparent = self[id]['parent']
@@ -240,9 +237,9 @@ class SWC(object):
         self.data['r'] *= r
         
     def translate(self, x, y, z):
-        self.data['x'] -= x
-        self.data['y'] -= y
-        self.data['z'] -= z
+        self.data['x'] += x
+        self.data['y'] += y
+        self.data['z'] += z
         
     def branch(self, id):
         """Return a list of IDs in the branch beginning at *id*.
@@ -291,7 +288,7 @@ if __name__ == '__main__':
     axon.set_type(2)
     dend = SWC('data/dendnonscaled.swc')
     dend.set_type(3)
-    dend.reparent(748)
+    dend.reparent(755)
     
     soma.connect(57, axon)
     soma.connect(39, dend)
