@@ -294,8 +294,12 @@ if __name__ == '__main__':
     cell = soma.copy()
     cell.connect(57, axon)
     cell.connect(39, dend)
+    # correct for voxel size
     cell.scale(0.11, 0.11, 0.06, 0.11)
-    cell.translate(-45, -60, -60)
+    # correct for shrinkage
+    s = 1.0 / 0.75
+    cell.scale(s, s, s, s)
+    cell.translate(-70, -90, -60)
     cell.write_hoc('test.hoc')
     #soma.topology()
     
