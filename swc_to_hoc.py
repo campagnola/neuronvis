@@ -55,7 +55,7 @@ class SWC(object):
         self.data = np.loadtxt(filename, dtype=self._dtype)
         
     def copy(self):
-        return SWC(self.data.copy())
+        return SWC(data=self.data.copy(), types=self.sectypes)
 
     @property
     def lookup(self):
@@ -197,7 +197,7 @@ class SWC(object):
             hoc.append('sections[%d] {' % sec_id)
             for seg in sec:
                 rec = self[seg]
-                hoc.append('  pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']))
+                hoc.append('  pt3dadd(%f, %f, %f, %f)' % (rec['x'], rec['y'], rec['z'], rec['r']*2))
             hoc.append('}')
             
             hoc.append('')
@@ -284,17 +284,19 @@ class SWC(object):
 if __name__ == '__main__':
     soma = SWC('data/cellbody.swc', types={1:'soma', 2:'axon', 3:'dendrite'})
     soma.set_type(1)
+    soma.data['r'] *= 0.5  # this data was recorded as diameter
     axon = SWC('data/axonnonscaled.swc')
     axon.set_type(2)
     dend = SWC('data/dendnonscaled.swc')
     dend.set_type(3)
     dend.reparent(755)
     
-    soma.connect(57, axon)
-    soma.connect(39, dend)
-    soma.scale(0.11, 0.11, 0.06, 0.11)
-    soma.translate(-45, -60, -60)
-    soma.write_hoc('test.hoc')
+    cell = soma.copy()
+    cell.connect(57, axon)
+    cell.connect(39, dend)
+    cell.scale(0.11, 0.11, 0.06, 0.11)
+    cell.translate(-45, -60, -60)
+    cell.write_hoc('test.hoc')
     #soma.topology()
     
     #dend.data[748]['type'] = 2
